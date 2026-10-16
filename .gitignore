@@ -5,7 +5,14 @@
 
 # === Dependencies & build artifacts ===
 node_modules/
+# Composer's vendor/ (any depth). The nested .gitignore files also anchor
+# /vendor to each project root, so this stays excluded even without this rule.
 vendor/
+# Re-include the app's static runtime assets that happen to live under a
+# "vendor" folder name. The application's layout loads these directly, so a
+# fresh clone needs them committed. Negation must target the directory first.
+!landtech-app/public/vendor/
+!landtech-app/public/vendor/**
 public/build/
 public/hot
 package-lock.json.bak
