@@ -1,0 +1,28 @@
+# === Secrets & environment ===
+.env
+.env.*
+!.env.example
+
+# === Dependencies & build artifacts ===
+node_modules/
+vendor/
+public/build/
+public/hot
+package-lock.json.bak
+
+# === Laravel generated caches / compiled views ===
+bootstrap/cache/*.php
+storage/framework/views/*.php
+storage/framework/cache/data/
+.phpunit.cache
+.phpunit.result.cache
+*.log
+
+# === OS / editor noise ===
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# === Machine-specific scratch / audit artifacts (kept on disk, not tracked) ===
+_audit_*

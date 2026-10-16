@@ -1,0 +1,29 @@
+@import 'tailwindcss';
+
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+@source '../../storage/framework/views/*.php';
+@source '../**/*.blade.php';
+
+@theme {
+    --color-gov-950: #0a1628;
+    --color-gov-900: #10233f;
+    --color-gov-800: #16325a;
+    --color-gov-700: #1e4478;
+    --color-gov-600: #2563eb;
+    --color-accent: #f59e0b;
+}
+
+body { @apply bg-slate-100 text-slate-800 antialiased; }
+
+.sim-badge { @apply inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 border border-amber-300; }
+.card { @apply bg-white rounded-xl shadow-sm border border-slate-200; }
+.btn-primary { @apply inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition cursor-pointer bg-blue-600 text-white hover:bg-blue-700; }
+.btn-danger { @apply inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition cursor-pointer bg-red-600 text-white hover:bg-red-700; }
+.btn-ghost { @apply inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition cursor-pointer bg-slate-100 text-slate-700 hover:bg-slate-200; }
+.input { @apply w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600; }
+@source '../**/*.js';
+
+@theme {
+    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+        'Segoe UI Symbol', 'Noto Color Emoji';
+}
