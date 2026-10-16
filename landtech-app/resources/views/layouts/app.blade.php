@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="/vendor/leaflet/leaflet.css" />
     <script src="/vendor/leaflet/leaflet.js"></script>
     <script src="/vendor/chartjs/chart.umd.min.js"></script>
+    <script src="{{ route('locale.script') }}"></script>
 </head>
 <body class="min-h-screen">
 <!-- SIMULATION DISCLAIMER BANNER -->
@@ -65,7 +66,21 @@
                 <h2 class="font-bold text-slate-900">@yield('page-title', 'Dashboard')</h2>
                 <p class="text-xs text-slate-500">@yield('page-sub', 'Fraud & Multiple Sale Detection Platform')</p>
             </div>
-            <span class="sim-badge">Simulated Module</span>
+            <div class="flex items-center gap-3">
+                <form method="POST" action="{{ route('locale.switch') }}" class="flex items-center gap-1.5" aria-label="{{ __('app.switch_language') }}">
+                    @csrf
+                    <label for="locale-select" class="text-xs text-slate-500">{{ __('app.language') }}</label>
+                    <select id="locale-select" name="locale" onchange="this.form.submit()"
+                            class="text-xs border border-slate-300 rounded px-1.5 py-1 bg-white text-slate-700">
+                        @foreach (config('app.available_locales', []) as $code => $label)
+                            <option value="{{ $code }}" @selected(app()->getLocale() === $code)
+                                    aria-current="{{ app()->getLocale() === $code ? 'true' : 'false' }}">{{ $label }}</option>
+                        @endforeach
+                    </select>
+                    <noscript><button type="submit" class="text-xs underline text-slate-600">{{ __('app.switch_language') }}</button></noscript>
+                </form>
+                <span class="sim-badge">{{ __('app.sim_badge') }}</span>
+            </div>
         </header>
         <div class="p-6 max-w-7xl mx-auto">
             @yield('content')
