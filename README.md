@@ -83,3 +83,4 @@ Use **Reset Demo Data** on the dashboard to re-seed the synthetic dataset.
 - [LandTech 2026 Rule Book](https://landtech.diu.edu.bd/storage/events/landtech/aUAMtAxBfVckIypiOSekkW9s8bVw8pETLg2hox1W.pdf)
 - [Leaflet](https://leafletjs.com) · [OpenStreetMap](https://www.openstreetmap.org/copyright)
 - [Chart.js](https://www.chartjs.org) · [Tailwind CSS](https://tailwindcss.com)
+"# LandTech2026" 
