@@ -67,18 +67,18 @@
                 <p class="text-xs text-slate-500">@yield('page-sub', 'Fraud & Multiple Sale Detection Platform')</p>
             </div>
             <div class="flex items-center gap-3">
-                <form method="POST" action="{{ route('locale.switch') }}" class="flex items-center gap-1.5" aria-label="{{ __('app.switch_language') }}">
-                    @csrf
-                    <label for="locale-select" class="text-xs text-slate-500">{{ __('app.language') }}</label>
-                    <select id="locale-select" name="locale" onchange="this.form.submit()"
-                            class="text-xs border border-slate-300 rounded px-1.5 py-1 bg-white text-slate-700">
-                        @foreach (config('app.available_locales', []) as $code => $label)
-                            <option value="{{ $code }}" @selected(app()->getLocale() === $code)
-                                    aria-current="{{ app()->getLocale() === $code ? 'true' : 'false' }}">{{ $label }}</option>
-                        @endforeach
-                    </select>
-                    <noscript><button type="submit" class="text-xs underline text-slate-600">{{ __('app.switch_language') }}</button></noscript>
-                </form>
+                @include('partials.locale-switcher')
+                @guest
+                    <a href="{{ route('login') }}" class="text-xs font-semibold text-gov-700 hover:text-gov-600">{{ __('Log in') }}</a>
+                    <a href="{{ route('register') }}" class="text-xs font-semibold text-gov-700 hover:text-gov-600">{{ __('Register') }}</a>
+                @endguest
+                @auth
+                    <a href="{{ route('profile.edit') }}" class="text-xs font-semibold text-gov-700 hover:text-gov-600">{{ Auth::user()->name }}</a>
+                    <form method="POST" action="{{ route('logout') }}">
+                        @csrf
+                        <button type="submit" class="text-xs font-semibold text-gov-700 hover:text-gov-600">{{ __('Log Out') }}</button>
+                    </form>
+                @endauth
                 <span class="sim-badge">{{ __('app.sim_badge') }}</span>
             </div>
         </header>

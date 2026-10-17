@@ -162,6 +162,11 @@ return [
     ],
 
     'attributes' => [
+        'name' => 'name',
+        'email' => 'email',
+        'password' => 'password',
+        'password_confirmation' => 'password confirmation',
+        'current_password' => 'current password',
         'locale' => 'language',
     ],
 ];

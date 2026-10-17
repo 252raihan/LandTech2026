@@ -15,6 +15,8 @@ class LocaleController extends Controller
 
         $request->session()->put('locale', $validated['locale']);
 
+        cookie()->queue(cookie()->forever('locale', $validated['locale']));
+
         if ($request->expectsJson()) {
             return response()->json([
                 'locale' => $validated['locale'],

@@ -12,12 +12,21 @@ class SetLocale
     {
         $locale = $request->session()->get('locale');
 
-        if (! is_string($locale) || ! array_key_exists($locale, config('app.available_locales', []))) {
+        if (! $this->isAvailable($locale)) {
+            $locale = $request->cookie('locale');
+        }
+
+        if (! $this->isAvailable($locale)) {
             $locale = config('app.locale');
         }
 
         App::setLocale($locale);
 
         return $next($request);
+    }
+
+    protected function isAvailable(mixed $locale): bool
+    {
+        return is_string($locale) && array_key_exists($locale, config('app.available_locales', []));
     }
 }

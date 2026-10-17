@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\LocaleController;
+use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -35,3 +36,16 @@ Route::redirect('/', '/dashboard');
 
 Route::post('/locale', [LocaleController::class, 'switch'])->name('locale.switch');
 Route::get('/lang.js', [LocaleController::class, 'script'])->name('locale.script');
+
+/*
+| Phase 2 additions: authentication (see routes/auth.php) and the protected
+| /profile group. All 12 demo pages above remain public — only auth flows and
+| /profile require a session.
+*/
+Route::middleware('auth')->group(function () {
+    Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
+    Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
+    Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+});
+
+require __DIR__.'/auth.php';

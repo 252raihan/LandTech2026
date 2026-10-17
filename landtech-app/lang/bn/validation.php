@@ -162,6 +162,11 @@ return [
     ],
 
     'attributes' => [
+        'name' => 'নাম',
+        'email' => 'ইমেইল',
+        'password' => 'পাসওয়ার্ড',
+        'password_confirmation' => 'পাসওয়ার্ড নিশ্চিতকরণ',
+        'current_password' => 'বর্তমান পাসওয়ার্ড',
         'locale' => 'ভাষা',
     ],
 ];
