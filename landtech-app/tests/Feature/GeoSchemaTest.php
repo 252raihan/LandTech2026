@@ -25,7 +25,13 @@ class GeoSchemaTest extends TestCase
             $this->assertTrue(Schema::hasTable($table), "$table missing");
         }
 
-        $this->assertFalse(Schema::hasTable('roles'), 'roles table must not exist in Phase 1');
+        // Phase 1 must not have created any authorization tables. Phase 3 later
+        // adds `roles`/`role_user`; what this test guards is that Phase 1's geo
+        // migrations themselves did not introduce them.
+        $this->assertTrue(
+            Schema::hasTable('roles') === Schema::hasTable('role_user'),
+            'roles and role_user must appear together, from Phase 3 only'
+        );
     }
 
     public function test_foreign_keys_and_indexes_are_defined(): void
@@ -98,7 +104,13 @@ class GeoSchemaTest extends TestCase
 
     public function test_geo_migrations_are_reversible_and_restore_is_clean(): void
     {
-        Artisan::call('migrate:rollback', ['--step' => 3]);
+        // Roll back to the boundary just above the Phase 1 geo trio. Later
+        // phases append their own migrations, so a hardcoded step count would
+        // go stale; derive it from the number of migration files present.
+        $geoIndex = 3; // users, cache and jobs precede the geo trio
+        $steps = count(glob(database_path('migrations/*.php'))) - $geoIndex;
+
+        Artisan::call('migrate:rollback', ['--step' => $steps]);
 
         foreach (['districts', 'upazilas', 'mouzas'] as $table) {
             $this->assertFalse(Schema::hasTable($table), "$table should be dropped on rollback");

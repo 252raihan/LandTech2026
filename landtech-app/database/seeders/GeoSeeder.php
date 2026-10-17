@@ -5,19 +5,39 @@ namespace Database\Seeders;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Phase 1 — geographic reference data (district > upazila > mouza).
+ *
+ * IDEMPOTENT: uses upsert keyed on the natural unique key (`code` for
+ * districts, upazilas and mouzas — each of those columns carries a real unique
+ * index), so running the seeder twice updates existing rows in place instead of
+ * colliding on the unique index or creating duplicates.
+ *
+ * IDs ARE PRESERVED. `upsert` updates matching rows rather than deleting and
+ * re-inserting, so existing district/upazila/mouza primary keys — and therefore
+ * any `plots.mouza_id` references — survive a re-seed unchanged.
+ *
+ * No destructive operation (migrate:fresh / db:wipe / truncate) is used.
+ */
 class GeoSeeder extends Seeder
 {
     public function run(): void
     {
+        $now = now();
+
         $districts = [
             ['code' => 'DHA', 'name_en' => 'Dhaka', 'name_bn' => 'ঢাকা', 'division_en' => 'Dhaka', 'division_bn' => 'ঢাকা', 'latitude' => 23.810300, 'longitude' => 90.412500],
             ['code' => 'CTG', 'name_en' => 'Chattogram', 'name_bn' => 'চট্টগ্রাম', 'division_en' => 'Chattogram', 'division_bn' => 'চট্টগ্রাম', 'latitude' => 22.356900, 'longitude' => 91.783200],
             ['code' => 'SYL', 'name_en' => 'Sylhet', 'name_bn' => 'সিলেট', 'division_en' => 'Sylhet', 'division_bn' => 'সিলেট', 'latitude' => 24.894900, 'longitude' => 91.868700],
         ];
 
-        foreach ($districts as $d) {
-            DB::table('districts')->insert($d + ['created_at' => now(), 'updated_at' => now()]);
-        }
+        // Keyed on the unique `code` column: matched rows are updated in place,
+        // so their `id` values are never reassigned.
+        DB::table('districts')->upsert(
+            array_map(fn ($d) => $d + ['created_at' => $now, 'updated_at' => $now], $districts),
+            ['code'],
+            ['name_en', 'name_bn', 'division_en', 'division_bn', 'latitude', 'longitude', 'updated_at']
+        );
 
         $districtIds = DB::table('districts')->pluck('id', 'code');
 
@@ -28,18 +48,20 @@ class GeoSeeder extends Seeder
             ['district_code' => 'SYL', 'code' => 'SYL-01', 'name_en' => 'Beanibazar', 'name_bn' => 'বেনীবাজার', 'latitude' => 24.775300, 'longitude' => 92.041400],
         ];
 
-        foreach ($upazilas as $u) {
-            DB::table('upazilas')->insert([
+        DB::table('upazilas')->upsert(
+            array_map(fn ($u) => [
                 'district_id' => $districtIds[$u['district_code']],
                 'code' => $u['code'],
                 'name_en' => $u['name_en'],
                 'name_bn' => $u['name_bn'],
                 'latitude' => $u['latitude'],
                 'longitude' => $u['longitude'],
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-        }
+                'created_at' => $now,
+                'updated_at' => $now,
+            ], $upazilas),
+            ['code'],
+            ['district_id', 'name_en', 'name_bn', 'latitude', 'longitude', 'updated_at']
+        );
 
         $upazilaIds = DB::table('upazilas')->pluck('id', 'code');
 
@@ -51,17 +73,25 @@ class GeoSeeder extends Seeder
             ['upazila_code' => 'SYL-01', 'code' => 'SYL-01-M02', 'name_en' => 'Patli', 'name_bn' => 'পাটলী', 'latitude' => 24.768800, 'longitude' => 92.030200],
         ];
 
-        foreach ($mouzas as $m) {
-            DB::table('mouzas')->insert([
+        // Conflict target must match a REAL unique index. `mouzas` has
+        // `mouzas_code_unique` on `code` alone (there is no composite
+        // (upazila_id, code) unique index), and SQLite rejects an upsert whose
+        // conflict target does not correspond to an actual unique constraint.
+        // Since `code` is globally unique here, keying on it is both valid and
+        // sufficient.
+        DB::table('mouzas')->upsert(
+            array_map(fn ($m) => [
                 'upazila_id' => $upazilaIds[$m['upazila_code']],
                 'code' => $m['code'],
                 'name_en' => $m['name_en'],
                 'name_bn' => $m['name_bn'],
                 'latitude' => $m['latitude'],
                 'longitude' => $m['longitude'],
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-        }
+                'created_at' => $now,
+                'updated_at' => $now,
+            ], $mouzas),
+            ['code'],
+            ['upazila_id', 'name_en', 'name_bn', 'latitude', 'longitude', 'updated_at']
+        );
     }
 }
