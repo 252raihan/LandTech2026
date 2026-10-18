@@ -1,30 +1,51 @@
 @extends('layouts.app')
-@section('title', 'Faraz Calculator') @section('page-title', 'M7 · Faraz Share Calculator')
-@section('page-sub', 'Enforces Σ Shareᵢ = 1.0 and S_transfer ≤ S_legal')
+@section('title', __('pages.faraz-calculator.title')) @section('page-title', __('pages.faraz-calculator.page_title'))
+@section('page-sub', __('pages.faraz-calculator.page_sub'))
 
 @push('scripts')
 <script type="module">
 import { validateShares, validateTransfer, equalSplit, fractionToAnkra } from '/js/faraz.js';
 
 let legal = [
-    { holder: 'Heir A', share: 0.4 },
-    { holder: 'Heir B', share: 0.35 },
-    { holder: 'Heir C', share: 0.25 },
+    { holder: __t('pages.faraz-calculator.heir_prefix') + ' A', share: 0.4 },
+    { holder: __t('pages.faraz-calculator.heir_prefix') + ' B', share: 0.35 },
+    { holder: __t('pages.faraz-calculator.heir_prefix') + ' C', share: 0.25 },
 ];
 
 function renderLegal() {
-    document.getElementById('legal-list').innerHTML = legal.map((s, i) => `
-        <tr class="border-b border-slate-100 text-sm"><td class="py-2">${s.holder}</td>
-        <td>${s.share} <span class="text-xs text-slate-400">(${fractionToAnkra(s.share)})</span></td></tr>`).join('') +
-        `<tr class="font-bold"><td class="py-2">Total (must equal 1.0)</td><td id="sum-cell">${validateShares(legal).sum}</td></tr>`;
+    const v = validateShares(legal);
+
+    document.getElementById('legal-list').innerHTML = legal.map(s => `
+        <tr>
+            <td class="font-medium text-slate-900">${__esc(s.holder)}</td>
+            <td class="whitespace-nowrap">${__esc(s.share)} <span class="text-xs text-slate-400">(${__esc((s.share * 100).toFixed(1))}%)</span></td>
+            <td class="whitespace-nowrap text-xs text-slate-500">${__esc(fractionToAnkra(s.share))}</td>
+        </tr>`).join('') + `
+        <tr class="bg-slate-50 font-semibold">
+            <td class="px-4 py-3">${__t('pages.faraz-calculator.total_label')}</td>
+            <td class="px-4 py-3 tabular-nums">${__esc(v.sum)}</td>
+            <td class="px-4 py-3">
+                <span class="badge ${v.valid ? 'badge-green' : 'badge-red'}">${__esc(v.valid ? __t('pages.faraz-calculator.sum_valid') : __t('pages.faraz-calculator.sum_invalid'))}</span>
+            </td>
+        </tr>`;
+
+    // Keep the seller dropdown in sync with the current legal holders, preserving
+    // the previous selection where possible.
+    const sellerSel = document.getElementById('t-seller');
+    const previous = sellerSel.value;
+    sellerSel.innerHTML = legal
+        .map(s => `<option value="${__esc(s.holder)}">${__esc(s.holder)}</option>`)
+        .join('');
+    if (legal.some(s => s.holder === previous)) sellerSel.value = previous;
 }
 renderLegal();
 
 document.getElementById('btn-split').onclick = () => {
-    const n = Number(document.getElementById('heir-count').value || 3);
-    legal = equalSplit(Array.from({ length: n }, (_, i) => `Heir ${String.fromCharCode(65 + i)}`));
+    const n = Math.min(8, Math.max(1, Number(document.getElementById('heir-count').value || 3)));
+    legal = equalSplit(Array.from({ length: n }, (_, i) => `${__t('pages.faraz-calculator.heir_prefix')} ${String.fromCharCode(65 + i)}`));
     renderLegal();
-    document.getElementById('transfer-out').textContent = `Estate equally split among ${n} heirs.`;
+    document.getElementById('transfer-out').innerHTML =
+        `<div class="alert alert-info">${__esc(__t('pages.faraz-calculator.split_result', { count: n }))}</div>`;
 };
 
 document.getElementById('btn-transfer').onclick = () => {
@@ -32,33 +53,79 @@ document.getElementById('btn-transfer').onclick = () => {
     const share = Number(document.getElementById('t-share').value);
     const r = validateTransfer(legal, { seller, share });
     const v = validateShares(legal);
+
     document.getElementById('transfer-out').innerHTML = `
-        <div class="p-3 rounded text-sm ${r.valid ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}">
-            ${r.valid ? '✅' : '🚫'} ${r.message}<br>
-            <span class="text-xs">Σ shares = ${v.sum} → ${v.valid ? 'valid' : 'INVALID: shares do not sum to 1.0'}</span>
+        <div class="alert ${r.valid ? 'alert-success' : 'alert-danger'}" role="status">
+            <span class="badge ${r.valid ? 'badge-green' : 'badge-red'} shrink-0">${__esc(r.valid ? __t('pages.faraz-calculator.sum_valid') : __t('pages.faraz-calculator.sum_invalid'))}</span>
+            <div class="min-w-0">
+                <p>${__esc(r.message)}</p>
+                <p class="mt-1 text-xs">${__tHtml('pages.faraz-calculator.sum_line', { sum: v.sum, verdict: v.valid ? __t('pages.faraz-calculator.sum_valid') : __t('pages.faraz-calculator.sum_invalid') })}</p>
+            </div>
         </div>`;
 };
 </script>
 @endpush
 
 @section('content')
-<div class="grid lg:grid-cols-2 gap-6">
-    <div class="card p-5">
-        <h3 class="font-semibold mb-3">Legal (Inherited) Shares</h3>
-        <table class="w-full"><tbody id="legal-list"></tbody></table>
-        <div class="mt-4 flex gap-2 items-end">
-            <div><label class="text-xs text-slate-500">Number of heirs</label><input id="heir-count" class="input w-24" type="number" value="3" min="1" max="8"></div>
-            <button id="btn-split" class="btn-ghost">⚖️ Equal Faraz Split</button>
+<x-page-header icon="scale" :title="__('pages.faraz-calculator.page_title')" :subtitle="__('pages.faraz-calculator.page_sub')" />
+
+<div class="grid gap-6 lg:grid-cols-2">
+    <section class="card" aria-labelledby="legal-shares-title">
+        <div class="card-header">
+            <div>
+                <h2 id="legal-shares-title" class="card-title">{{ __('pages.faraz-calculator.legal_heading') }}</h2>
+                <p class="text-xs text-slate-400">{{ __('pages.faraz-calculator.help') }}</p>
+            </div>
         </div>
-    </div>
-    <div class="card p-5 space-y-4">
-        <h3 class="font-semibold">Proposed Transfer Check</h3>
-        <div><label class="text-xs text-slate-500">Seller</label>
-            <select id="t-seller" class="input">${''}<option>Heir A</option><option>Heir B</option><option>Heir C</option></select></div>
-        <div><label class="text-xs text-slate-500">Transfer share (fraction, e.g. 0.2)</label><input id="t-share" class="input" type="number" step="0.01" value="0.2"></div>
-        <button id="btn-transfer" class="btn-primary">🧮 Validate Transfer</button>
-        <div id="transfer-out"></div>
-        <p class="text-xs text-slate-500">Rule: a seller cannot transfer more than their legal faraz share — prevents fraudulently selling shares one does not own. Pure client-side math.</p>
-    </div>
+        <div class="card-body pt-0">
+            <div class="overflow-x-auto">
+                <table class="data-table min-w-[420px]">
+                    <thead>
+                        <tr>
+                            <th scope="col">{{ __('pages.faraz-calculator.col_holder') }}</th>
+                            <th scope="col">{{ __('pages.faraz-calculator.col_share') }}</th>
+                            <th scope="col">{{ __('pages.faraz-calculator.col_ankra') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody id="legal-list"></tbody>
+                </table>
+            </div>
+            <div class="mt-4 flex flex-wrap items-end gap-3">
+                <div>
+                    <label for="heir-count" class="label">{{ __('pages.faraz-calculator.heir_count_label') }}</label>
+                    <input id="heir-count" class="input w-24" type="number" value="3" min="1" max="8" inputmode="numeric">
+                </div>
+                <button type="button" id="btn-split" class="btn-ghost">
+                    <x-icon name="scale" class="h-4 w-4" />
+                    <span>{{ __('pages.faraz-calculator.equal_split') }}</span>
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <section class="card" aria-labelledby="transfer-title">
+        <div class="card-header">
+            <div>
+                <h2 id="transfer-title" class="card-title">{{ __('pages.faraz-calculator.transfer_heading') }}</h2>
+                <p class="text-xs text-slate-400">{{ __('pages.faraz-calculator.rule_note') }}</p>
+            </div>
+        </div>
+        <div class="card-body space-y-4">
+            <div>
+                <label for="t-seller" class="label">{{ __('pages.faraz-calculator.seller_label') }}</label>
+                <select id="t-seller" class="input"></select>
+            </div>
+            <div>
+                <label for="t-share" class="label">{{ __('pages.faraz-calculator.transfer_share_label') }}</label>
+                <input id="t-share" class="input" type="number" step="0.01" min="0" max="1" value="0.2" inputmode="decimal">
+                <p class="hint">{{ __('pages.faraz-calculator.transfer_hint') }}</p>
+            </div>
+            <button type="button" id="btn-transfer" class="btn-primary">
+                <x-icon name="calculator" class="h-4 w-4" />
+                <span>{{ __('pages.faraz-calculator.validate_transfer') }}</span>
+            </button>
+            <div id="transfer-out" role="status"></div>
+        </div>
+    </section>
 </div>
 @endsection

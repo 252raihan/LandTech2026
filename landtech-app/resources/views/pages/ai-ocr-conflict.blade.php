@@ -1,49 +1,115 @@
 @extends('layouts.app')
-@section('title', 'OCR Conflict') @section('page-title', 'M6 · AI/OCR Conflict Detection Engine')
-@section('page-sub', 'Simulated OCR extraction + rule-based fraud detection')
+@section('title', __('pages.ai-ocr-conflict.title')) @section('page-title', __('pages.ai-ocr-conflict.page_title'))
+@section('page-sub', __('pages.ai-ocr-conflict.page_sub'))
 
 @push('scripts')
 <script type="module">
-import { getDeeds, getPlots } from '/js/store.js';
-import { simulateOcrExtract, detectConflicts, getLatestScan } from '/js/ocr.js';
+import { getDeeds } from '/js/store.js';
+import { simulateOcrExtract, detectConflicts } from '/js/ocr.js';
+import { toast } from '/js/ui.js';
 
 const sel = document.getElementById('ocr-deed');
 getDeeds().forEach(d => sel.add(new Option(`${d.deedNo} (plot ${d.plotId})`, d.id)));
 
-const SEV = { CRITICAL: 'bg-red-100 text-red-700', HIGH: 'bg-orange-100 text-orange-700', MEDIUM: 'bg-amber-100 text-amber-700', LOW: 'bg-slate-100 text-slate-600' };
+const SEV = {
+    CRITICAL: 'badge-red',
+    HIGH: 'badge-red',
+    MEDIUM: 'badge-amber',
+    LOW: 'badge-slate',
+};
 
 sel.onchange = () => {
     const x = simulateOcrExtract(sel.value);
     document.getElementById('ocr-out').innerHTML = x ? `
-        <div class="text-sm space-y-1"><div>Confidence: <strong>${(x.confidence * 100).toFixed(1)}%</strong></div>
-        <pre class="bg-slate-900 text-green-300 p-3 rounded text-xs overflow-auto">${JSON.stringify(x.extracted, null, 2)}</pre>
-        <em class="text-xs text-slate-500">${x.engine}</em></div>` : '';
+        <div class="space-y-3">
+            <p class="text-sm text-slate-600">
+                ${__t('pages.ai-ocr-conflict.confidence')}
+                <strong>${(x.confidence * 100).toFixed(1)}%</strong>
+            </p>
+            <pre class="code-block">${__esc(JSON.stringify(x.extracted, null, 2))}</pre>
+            <p><em class="text-xs not-italic text-slate-500">${__esc(x.engine)}</em></p>
+        </div>` : '';
 };
 
 async function runScan() {
     const conflicts = await detectConflicts();
+    document.getElementById('conflict-count').textContent =
+        __t('pages.ai-ocr-conflict.conflict_count', { count: conflicts.length });
+
     document.getElementById('conflict-list').innerHTML = conflicts.length ? conflicts.map(c => `
-        <div class="flex items-start gap-3 py-3 border-b border-slate-100 text-sm">
-            <span class="text-xs font-bold px-2 py-1 rounded ${SEV[c.severity]}">${c.severity}</span>
-            <div><strong class="font-mono text-xs">${c.type}</strong> — plot ${c.plotNo}<div class="text-slate-600">${c.detail}</div></div>
-        </div>`).join('') : '<p class="text-sm text-green-600">✅ No conflicts detected.</p>';
+        <li class="flex items-start gap-3 py-3">
+            <span class="badge ${SEV[c.severity] ?? 'badge-slate'} shrink-0">${__esc(__t('pages.ai-ocr-conflict.severity_' + c.severity.toLowerCase()))}</span>
+            <div class="min-w-0 flex-1">
+                <p class="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-700">
+                    <span>${__esc(__t('pages.ai-ocr-conflict.type_' + c.type.toLowerCase()))}</span>
+                    <span class="badge badge-slate">${__esc(c.plotNo)}</span>
+                </p>
+                <p class="mt-1 text-sm text-slate-600">${__esc(c.detail)}</p>
+            </div>
+            <a href="/risk-scoring#${encodeURIComponent(c.plotId)}" class="btn-ghost btn-xs shrink-0">${__esc(__t('dashboard.inspect'))}</a>
+        </li>`).join('')
+        : `<li class="py-8 text-center">
+               <span class="badge badge-green">${__esc(__t('pages.ai-ocr-conflict.no_conflicts'))}</span>
+           </li>`;
 }
-document.getElementById('btn-scan').onclick = runScan;
+
+document.getElementById('btn-scan').onclick = async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    try {
+        await runScan();
+        toast(__t('pages.ai-ocr-conflict.scan_done'), 'success');
+    } finally {
+        btn.disabled = false;
+        btn.removeAttribute('aria-busy');
+    }
+};
+
 runScan(); // auto-run on load
 </script>
 @endpush
 
 @section('content')
-<div class="grid lg:grid-cols-2 gap-6">
-    <div class="card p-5">
-        <h3 class="font-semibold mb-3">Simulated OCR Extraction <span class="sim-badge">Rule-based, no real AI model</span></h3>
-        <select id="ocr-deed" class="input mb-3"></select>
-        <div id="ocr-out" class="text-sm text-slate-500">Select a deed to "scan".</div>
-    </div>
-    <div class="card p-5">
-        <h3 class="font-semibold mb-3">Conflict Detection <button id="btn-scan" class="btn-primary text-xs ml-2">🔍 Run Full Scan</button></h3>
-        <p class="text-xs text-slate-500 mb-2">Detects: multiple sale of same plot · rapid transfers (&lt;30 days) · registration-vs-mutation mismatch · cross-survey (CS/SA/RS/BS) inconsistency.</p>
-        <div id="conflict-list"></div>
-    </div>
+<x-page-header icon="cpu" :title="__('pages.ai-ocr-conflict.page_title')" :subtitle="__('pages.ai-ocr-conflict.page_sub')" />
+
+<div class="grid gap-6 lg:grid-cols-2">
+    <section class="card" aria-labelledby="ocr-title">
+        <div class="card-header">
+            <div>
+                <h2 id="ocr-title" class="card-title">{{ __('pages.ai-ocr-conflict.ocr_heading') }}</h2>
+                <p class="text-xs text-slate-400">{{ __('pages.ai-ocr-conflict.ocr_hint') }}</p>
+            </div>
+            <span class="sim-badge">{{ __('pages.ai-ocr-conflict.ocr_badge') }}</span>
+        </div>
+        <div class="card-body space-y-4">
+            <div>
+                <label for="ocr-deed" class="label">{{ __('pages.ai-ocr-conflict.select_deed_label') }}</label>
+                <select id="ocr-deed" class="input"></select>
+            </div>
+            <div id="ocr-out" class="text-sm text-slate-500" role="status">
+                {{ __('pages.ai-ocr-conflict.ocr_empty') }}
+            </div>
+        </div>
+    </section>
+
+    <section class="card" aria-labelledby="conflict-title">
+        <div class="card-header">
+            <div>
+                <h2 id="conflict-title" class="card-title">{{ __('pages.ai-ocr-conflict.conflict_heading') }}</h2>
+                <p class="text-xs text-slate-400">{{ __('pages.ai-ocr-conflict.detects') }}</p>
+            </div>
+            <div class="flex items-center gap-2">
+                <span id="conflict-count" class="badge badge-slate"></span>
+                <button type="button" id="btn-scan" class="btn-primary btn-sm">
+                    <x-icon name="search" class="h-4 w-4" />
+                    <span>{{ __('pages.ai-ocr-conflict.run_scan') }}</span>
+                </button>
+            </div>
+        </div>
+        <div class="card-body pt-0">
+            <ul id="conflict-list" class="divide-y divide-slate-100"></ul>
+        </div>
+    </section>
 </div>
 @endsection

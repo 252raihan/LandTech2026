@@ -5,6 +5,13 @@
 import { getPlots, savePlots, getDeeds, getLiens, getKyc, getOcrDocs } from './store.js';
 
 /**
+ * Translation helper. Falls back to the key itself when the dictionary is not
+ * loaded (e.g. a unit-test context), so modules never throw on a missing __t.
+ */
+const t = (key, replace) =>
+    (typeof window !== 'undefined' && window.__t ? window.__t(key, replace) : key);
+
+/**
  * Score plot: lower = safer. Signals:
  *  +40 multiple sale · +25 active lien · +20 pending mutation
  *  +15 rapid transfer · +10 unverified (no KYC) · +10 khas/acquisition status
@@ -20,20 +27,20 @@ export function scorePlot(plotId) {
     let score = 0;
     const reasons = [];
     const buyers = new Set(deeds.map(d => d.buyerNid));
-    if (deeds.length > 1) { score += 40; reasons.push('Same plot sold to multiple buyers'); }
-    if (liens.length) { score += 25; reasons.push('Active bank lien (no e-NOC)'); }
-    if (plot?.mutationStatus === 'PENDING_MUTATION') { score += 20; reasons.push('Pending mutation — transfer block active'); }
-    if (flags.some(f => f.type === 'RAPID_TRANSFER')) { score += 15; reasons.push('Suspicious rapid transfer'); }
-    if (!kycDone) { score += 10; reasons.push('Buyer not e-KYC verified'); }
-    if (plot?.survey === 'NONE') { score += 10; reasons.push('No survey record'); }
+    if (deeds.length > 1) { score += 40; reasons.push(t('risk-scoring.reason_multiple_buyers')); }
+    if (liens.length) { score += 25; reasons.push(t('risk-scoring.reason_active_lien')); }
+    if (plot?.mutationStatus === 'PENDING_MUTATION') { score += 20; reasons.push(t('risk-scoring.reason_pending_mutation')); }
+    if (flags.some(f => f.type === 'RAPID_TRANSFER')) { score += 15; reasons.push(t('risk-scoring.reason_rapid_transfer')); }
+    if (!kycDone) { score += 10; reasons.push(t('risk-scoring.reason_no_kyc')); }
+    if (plot?.survey === 'NONE') { score += 10; reasons.push(t('risk-scoring.reason_no_survey')); }
     score = Math.min(score, 100);
     return { plotId, score, band: bandOf(score), reasons };
 }
 
 function bandOf(s) {
-    if (s >= 60) return { label: 'HIGH RISK', color: 'red' };
-    if (s >= 30) return { label: 'CAUTION', color: 'amber' };
-    return { label: 'LOW RISK', color: 'green' };
+    if (s >= 60) return { label: t('risk-scoring.band_high'), color: 'red' };
+    if (s >= 30) return { label: t('risk-scoring.band_caution'), color: 'amber' };
+    return { label: t('risk-scoring.band_low'), color: 'green' };
 }
 
 /** Score every plot and persist. */
@@ -59,7 +66,7 @@ export function publicCheck(plotId) {
         risk: r,
         deedCount: deeds.length,
         mutation: plot.mutationStatus,
-        khasOrAcquisition: plot.survey === 'NONE' ? 'KHAS (simulated)' : 'REGISTERED (simulated)',
+        khasOrAcquisition: plot.survey === 'NONE' ? t('risk-scoring.khas') : t('risk-scoring.registered'),
         pendingCases: r.reasons.filter(x => x.includes('lien') || x.includes('multiple')),
     };
 }

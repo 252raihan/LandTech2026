@@ -1,50 +1,114 @@
 @extends('layouts.app')
-@section('title', 'Bank Lien') @section('page-title', 'M5 · Bank Lien & Encumbrance Registry')
-@section('page-sub', 'Simulated CIB/CBS link — blocks registration until e-NOC issued')
+@section('title', __('pages.bank-lien.title')) @section('page-title', __('pages.bank-lien.page_title'))
+@section('page-sub', __('pages.bank-lien.page_sub'))
 
 @push('scripts')
 <script type="module">
 import { getPlots } from '/js/store.js';
 import { getLiens as allLiens, addLien, issueENOC } from '/js/liens.js';
+import { toast } from '/js/ui.js';
 
 const plotSel = document.getElementById('lien-plot');
-getPlots().forEach(p => plotSel.add(new Option(p.plotNo, p.id)));
+getPlots().forEach(p => plotSel.add(new Option(`${p.plotNo} — ${p.khatian}`, p.id)));
+
+function money(amount) {
+    return '৳ ' + Number(amount).toLocaleString();
+}
 
 function render() {
-    document.getElementById('lien-table').innerHTML = allLiens().length ? allLiens().map(l => {
+    const liens = allLiens();
+    document.getElementById('lien-count').textContent = __t('pages.bank-lien.lien_count', { count: liens.length });
+
+    document.getElementById('lien-table').innerHTML = liens.length ? liens.map(l => {
         const plot = getPlots().find(p => p.id === l.plotId);
-        return `<tr class="border-b border-slate-100 text-sm">
-        <td class="py-2">${plot?.plotNo ?? l.plotId}</td><td>${l.bank}</td><td>৳ ${Number(l.amount).toLocaleString()}</td>
-        <td><span class="text-xs font-bold px-2 py-0.5 rounded ${l.status === 'ACTIVE' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}">${l.status}</span></td>
-        <td class="font-mono text-[10px]">${l.eNoc ?? '—'}</td>
-        <td>${l.status === 'ACTIVE' ? `<button class="btn-primary text-xs" onclick="window.__noc('${l.id}')">Issue e-NOC</button>` : ''}</td></tr>`;
-    }).join('') : '<tr><td colspan="6" class="py-4 text-sm text-slate-500">No liens. Plot-9 has a seeded lien after demo reset.</td></tr>';
+        return `<tr>
+            <td class="font-medium text-slate-900">${__esc(plot?.plotNo ?? l.plotId)}</td>
+            <td>${__esc(l.bank)}</td>
+            <td class="whitespace-nowrap">${__esc(money(l.amount))}</td>
+            <td><span class="badge ${l.status === 'ACTIVE' ? 'badge-red' : 'badge-green'}">${__esc(__t('common.' + l.status.toLowerCase()))}</span></td>
+            <td class="mono">${__esc(l.eNoc ?? '—')}</td>
+            <td class="whitespace-nowrap text-end">${l.status === 'ACTIVE'
+                ? `<button type="button" class="btn-primary btn-xs" onclick="window.__noc('${__esc(l.id)}')">${__t('pages.bank-lien.issue_enoc')}</button>`
+                : ''}</td>
+        </tr>`;
+    }).join('') : `<tr><td colspan="6" class="table-empty">${__esc(__t('pages.bank-lien.empty'))}</td></tr>`;
 }
-window.__noc = (id) => { const l = issueENOC(id); alert(l ? `✅ e-NOC ${l.eNoc} issued (simulated)` : 'Failed'); render(); };
+
+window.__noc = (id) => {
+    const l = issueENOC(id);
+    if (l) {
+        toast(__t('pages.bank-lien.enoc_issued', { enoc: l.eNoc }), 'success');
+    } else {
+        toast(__t('pages.bank-lien.enoc_failed'), 'error');
+    }
+    render();
+};
 render();
 
 document.getElementById('btn-add').onclick = () => {
-    const l = addLien(plotSel.value, document.getElementById('lien-bank').value || 'SIM-Bank Ltd (fictional)', document.getElementById('lien-amt').value || 1000000);
-    alert(`Lien registered (simulated CIB): ${l.id}`);
+    const amount = Number(document.getElementById('lien-amt').value || 1000000);
+    const l = addLien(plotSel.value, document.getElementById('lien-bank').value || __t('pages.bank-lien.default_bank'), amount);
+    toast(__t('pages.bank-lien.lien_registered', { id: l.id }), 'success');
     render();
 };
 </script>
 @endpush
 
 @section('content')
-<div class="card p-5 mb-6">
-    <h3 class="font-semibold mb-3">Register Lien (simulated)</h3>
-    <div class="grid sm:grid-cols-4 gap-3 items-end">
-        <select id="lien-plot" class="input"></select>
-        <input id="lien-bank" class="input" placeholder="Bank (fictional)">
-        <input id="lien-amt" class="input" type="number" placeholder="Amount (BDT)">
-        <button id="btn-add" class="btn-primary">🏦 Register Lien</button>
+<x-page-header icon="banknotes" :title="__('pages.bank-lien.page_title')" :subtitle="__('pages.bank-lien.page_sub')">
+    <x-slot:actions>
+        <span class="sim-badge">{{ __('pages.bank-lien.badge') }}</span>
+    </x-slot:actions>
+</x-page-header>
+
+<section class="card mb-6" aria-labelledby="lien-register-title">
+    <div class="card-header">
+        <div>
+            <h2 id="lien-register-title" class="card-title">{{ __('pages.bank-lien.register_heading') }}</h2>
+            <p class="text-xs text-slate-400">{!! __('pages.bank-lien.intro', ['enoc' => '<strong>e-NOC</strong>']) !!}</p>
+        </div>
     </div>
-    <p class="text-xs text-slate-500 mt-3">In production this links to bank CIB/CBS systems and issues an <strong>e-NOC</strong>. <span class="sim-badge">Simulated — no real bank connection</span></p>
-</div>
-<div class="card overflow-x-auto">
-    <table class="w-full text-sm"><thead class="bg-slate-50 text-left text-xs uppercase text-slate-500">
-    <tr><th class="px-4 py-3">Plot</th><th class="px-4 py-3">Bank</th><th class="px-4 py-3">Amount</th><th class="px-4 py-3">Status</th><th class="px-4 py-3">e-NOC</th><th class="px-4 py-3">Action</th></tr></thead>
-    <tbody id="lien-table"></tbody></table>
-</div>
+    <div class="card-body">
+        <div class="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+                <label for="lien-plot" class="label">{{ __('pages.bank-lien.col_plot') }}</label>
+                <select id="lien-plot" class="input"></select>
+            </div>
+            <div>
+                <label for="lien-bank" class="label">{{ __('pages.bank-lien.col_bank') }}</label>
+                <input id="lien-bank" class="input" placeholder="{{ __('pages.bank-lien.placeholder_bank') }}" autocomplete="off">
+            </div>
+            <div>
+                <label for="lien-amt" class="label">{{ __('pages.bank-lien.col_amount') }}</label>
+                <input id="lien-amt" class="input" type="number" min="0" step="1000" placeholder="{{ __('pages.bank-lien.placeholder_amount') }}" inputmode="numeric">
+            </div>
+            <button type="button" id="btn-add" class="btn-primary">
+                <x-icon name="banknotes" class="h-4 w-4" />
+                <span>{{ __('pages.bank-lien.register_button') }}</span>
+            </button>
+        </div>
+    </div>
+</section>
+
+<section class="card" aria-labelledby="lien-table-title">
+    <div class="card-header">
+        <h2 id="lien-table-title" class="card-title">{{ __('pages.bank-lien.table_heading') }}</h2>
+        <span id="lien-count" class="badge badge-slate"></span>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="data-table min-w-[820px]">
+            <thead>
+                <tr>
+                    <th scope="col">{{ __('pages.bank-lien.col_plot') }}</th>
+                    <th scope="col">{{ __('pages.bank-lien.col_bank') }}</th>
+                    <th scope="col">{{ __('pages.bank-lien.col_amount') }}</th>
+                    <th scope="col">{{ __('pages.bank-lien.col_status') }}</th>
+                    <th scope="col">{{ __('pages.bank-lien.col_enoc') }}</th>
+                    <th scope="col" class="text-end">{{ __('pages.bank-lien.col_action') }}</th>
+                </tr>
+            </thead>
+            <tbody id="lien-table"></tbody>
+        </table>
+    </div>
+</section>
 @endsection

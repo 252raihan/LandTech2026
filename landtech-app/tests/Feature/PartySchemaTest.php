@@ -128,7 +128,25 @@ class PartySchemaTest extends TestCase
 
     public function test_phase_three_migrations_are_reversible_without_touching_phase_one_and_two(): void
     {
-        Artisan::call('migrate:rollback', ['--step' => 6]);
+        // Roll back exactly the migrations added on top of the Phase 1/2 baseline.
+        //
+        // Derived from the migration filenames rather than a hardcoded step
+        // count: the baseline files are the Breeze defaults (0001_01_01_*) and
+        // the Phase 1 geo tables (2026_10_17_00000*), while every later phase
+        // uses the 100001+ / 200001+ ranges. Counting the difference means
+        // adding a phase cannot silently break this test again.
+        $files = glob(database_path('migrations/*.php'));
+
+        $baseline = count(array_filter($files, function (string $file): bool {
+            $name = basename($file);
+
+            return str_starts_with($name, '0001_01_01')
+                || preg_match('/^2026_10_17_00000\d_/', $name) === 1;
+        }));
+
+        $addedByLaterPhases = count($files) - $baseline;
+
+        Artisan::call('migrate:rollback', ['--step' => $addedByLaterPhases]);
 
         foreach (['roles', 'role_user', 'parties', 'party_identities', 'plots', 'plot_ownerships', 'sensitive_read_audits'] as $table) {
             $this->assertFalse(Schema::hasTable($table), "$table should be dropped on rollback");

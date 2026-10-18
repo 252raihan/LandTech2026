@@ -4,6 +4,10 @@
 // ============================================================
 import { getLocks, saveLocks, getPlots, savePlots, pushEvent, nowISO, uid } from './store.js';
 
+/** Translation helper (no-op fallback outside the browser). */
+const t = (key, replace) =>
+    (typeof window !== 'undefined' && window.__t ? window.__t(key, replace) : key);
+
 const TTL_MS = 5 * 60 * 1000; // 5 minutes lock TTL
 
 export function activeLocks() {
@@ -25,7 +29,7 @@ export function isLocked(plotId) {
 export function acquireLock(plotId, holder) {
     const locks = activeLocks();
     if (plotId in locks) {
-        return { ok: false, reason: `Plot already locked by "${locks[plotId].holder}" until ${new Date(locks[plotId].expiresAt).toLocaleTimeString()} (simulated Redlock contention)` };
+        return { ok: false, reason: t('plot-lock.already_locked', { holder: locks[plotId].holder, time: new Date(locks[plotId].expiresAt).toLocaleTimeString() }) };
     }
     const plot = getPlots().find(p => p.id === plotId);
     const key = plot ? plot.redlockKey : `LOCK:LAND:${plotId}`;
@@ -38,8 +42,8 @@ export function acquireLock(plotId, holder) {
 export function releaseLock(plotId, holder) {
     const locks = activeLocks();
     const lock = locks[plotId];
-    if (!lock) return { ok: false, reason: 'No active lock' };
-    if (lock.holder !== holder) return { ok: false, reason: 'Lock token mismatch (simulated Redlock safety)' };
+    if (!lock) return { ok: false, reason: t('plot-lock.no_active_lock') };
+    if (lock.holder !== holder) return { ok: false, reason: t('plot-lock.token_mismatch') };
     delete locks[plotId];
     saveLocks(locks);
     pushEvent('PLOT_UNLOCKED', { plotId, holder });

@@ -6,6 +6,10 @@
 import { getDeeds, getPlots, getOcrDocs, saveOcrDocs, pushEvent, uid, nowISO } from './store.js';
 import { appendLedger } from './crypto.js';
 
+/** Translation helper (no-op fallback outside the browser). */
+const t = (key, replace) =>
+    (typeof window !== 'undefined' && window.__t ? window.__t(key, replace) : key);
+
 const MS_PER_DAY = 86400000;
 
 /** Simulated OCR extraction: returns parsed fields with random-ish "scan" confidence. */
@@ -22,7 +26,7 @@ export function simulateOcrExtract(deedId) {
             survey: 'BS', // "OCR-read" survey generation
         },
         confidence: 0.82 + Math.random() * 0.15,
-        engine: 'SIMULATED-OCR (rule-based demo, no real AI model)',
+        engine: t('js.ocr_engine'),
     };
 }
 
@@ -46,7 +50,7 @@ export async function detectConflicts() {
                 type: 'MULTIPLE_SALE',
                 severity: 'CRITICAL',
                 plotId, plotNo: plot?.plotNo ?? plotId,
-                detail: `${pd.length} deeds registered for the same plot: ${pd.map(d => d.deedNo).join(', ')}`,
+                detail: t('ai-ocr-conflict.detail_multiple_sale', { count: pd.length, deeds: pd.map(d => d.deedNo).join(', ') }),
                 deedIds: pd.map(d => d.id),
             });
         }
@@ -59,7 +63,7 @@ export async function detectConflicts() {
                     type: 'RAPID_TRANSFER',
                     severity: 'HIGH',
                     plotId, plotNo: plot?.plotNo ?? plotId,
-                    detail: `Transfer within ${Math.round(gap)} days: ${pd[i - 1].deedNo} → ${pd[i].deedNo}`,
+                    detail: t('ai-ocr-conflict.detail_rapid_transfer', { days: Math.round(gap), from: pd[i - 1].deedNo, to: pd[i].deedNo }),
                     deedIds: [pd[i - 1].id, pd[i].id],
                 });
             }
@@ -71,7 +75,7 @@ export async function detectConflicts() {
                 type: 'MUTATION_MISMATCH',
                 severity: 'MEDIUM',
                 plotId, plotNo: plot.plotNo,
-                detail: 'Deed registered at Sub-Registry but mutation not completed at AC Land office (simulated inter-ministerial data gap)',
+                detail: t('ai-ocr-conflict.detail_mutation_mismatch'),
                 deedIds: pd.map(d => d.id),
             });
         }
@@ -82,7 +86,7 @@ export async function detectConflicts() {
                 type: 'SURVEY_CONFLICT',
                 severity: 'LOW',
                 plotId, plotNo: plot.plotNo,
-                detail: `Deed OCR reads survey "BS" but khatian record is "${plot.survey}" (simulated cross-survey inconsistency)`,
+                detail: t('ai-ocr-conflict.detail_survey_conflict', { survey: plot.survey }),
                 deedIds: pd.map(d => d.id),
             });
         }
@@ -90,7 +94,7 @@ export async function detectConflicts() {
 
     // Persist an OCR doc record + audit entry for the latest run
     const docs = getOcrDocs();
-    docs.unshift({ id: uid('ocr'), ts: nowISO(), conflicts, engine: 'SIMULATED-OCR' });
+    docs.unshift({ id: uid('ocr'), ts: nowISO(), conflicts, engine: t('js.ocr_engine') });
     saveOcrDocs(docs.slice(0, 50));
     if (conflicts.length) await appendLedger('CONFLICTS_DETECTED', { count: conflicts.length });
     pushEvent('OCR_SCAN_COMPLETED', { conflicts: conflicts.length });

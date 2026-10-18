@@ -1,67 +1,152 @@
 @extends('layouts.app')
-@section('title', 'e-KYC') @section('page-title', 'M4 · e-KYC & Biometric Gateway')
-@section('page-sub', 'Simulated Porichoy verification + optional real browser camera (photos stay local)')
+@section('title', __('pages.ekyc-biometric.title')) @section('page-title', __('pages.ekyc-biometric.page_title'))
+@section('page-sub', __('pages.ekyc-biometric.page_sub'))
 
 @push('scripts')
 <script type="module">
 import { verifyKyc, startCamera, stopCamera, capturePhoto, getKycHistory } from '/js/kyc.js';
+import { toast, fmtTime } from '/js/ui.js';
 
 const video = document.getElementById('cam'), canvas = document.getElementById('snap');
+
 document.getElementById('btn-cam').onclick = async () => {
-    try { await startCamera(video); document.getElementById('cam-note').textContent = '📷 Real camera active (local only — nothing uploaded).'; }
-    catch (e) { document.getElementById('cam-note').textContent = 'Camera unavailable: ' + e.message; }
+    try {
+        await startCamera(video);
+        video.classList.remove('hidden');
+        document.getElementById('cam-placeholder').classList.add('hidden');
+        document.getElementById('cam-note').textContent = __t('pages.ekyc-biometric.camera_active');
+    } catch (e) {
+        document.getElementById('cam-note').textContent =
+            __t('pages.ekyc-biometric.camera_unavailable', { message: e.message });
+    }
 };
-document.getElementById('btn-cam-off').onclick = () => stopCamera(video);
+
+document.getElementById('btn-cam-off').onclick = () => {
+    stopCamera(video);
+    video.classList.add('hidden');
+    document.getElementById('cam-placeholder').classList.remove('hidden');
+    document.getElementById('cam-note').textContent = __t('pages.ekyc-biometric.camera_stopped');
+};
+
 document.getElementById('btn-snap').onclick = () => {
+    if (video.classList.contains('hidden') || !video.videoWidth) {
+        document.getElementById('cam-note').textContent = __t('pages.ekyc-biometric.capture_needs_camera');
+        return;
+    }
     capturePhoto(video, canvas);
     canvas.classList.remove('hidden');
+    document.getElementById('cam-note').textContent = __t('pages.ekyc-biometric.captured_local');
 };
 
 document.getElementById('btn-kyc').onclick = () => {
-    const r = verifyKyc(document.getElementById('kyc-nid').value || 'SIM-123456', document.getElementById('kyc-name').value || 'Simulated Buyer');
+    const nid = document.getElementById('kyc-nid').value || __t('pages.saga.default_buyer_nid');
+    const name = document.getElementById('kyc-name').value || __t('pages.saga.default_buyer_name');
+    const r = verifyKyc(nid, name);
+    const ok = r.status === 'VERIFIED';
+
     document.getElementById('kyc-out').innerHTML = `
-        <div class="p-3 rounded ${r.status === 'VERIFIED' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'} text-sm">
-            ${r.status === 'VERIFIED' ? '✅' : '🚫'} <strong>${r.status}</strong> · confidence ${(r.confidence * 100).toFixed(1)}%<br>
-            Face match: ${r.faceMatch ?? 'n/a'} · Liveness: ${r.liveness ?? 'n/a'}<br>
-            <em class="text-xs">${r.provider}</em>
+        <div class="alert ${ok ? 'alert-success' : 'alert-danger'}" role="status">
+            <span class="badge ${ok ? 'badge-green' : 'badge-red'} shrink-0">${__esc(ok ? __t('common.verified') : __t('common.rejected'))}</span>
+            <div class="min-w-0">
+                <p>${__tHtml('pages.ekyc-biometric.confidence', { percent: (r.confidence * 100).toFixed(1) })}</p>
+                <p class="text-xs">${__tHtml('pages.ekyc-biometric.face_match', { value: r.faceMatch ?? __t('pages.ekyc-biometric.na') })} · ${__tHtml('pages.ekyc-biometric.liveness', { value: r.liveness ?? __t('pages.ekyc-biometric.na') })}</p>
+                <p class="mt-1"><em class="text-xs not-italic text-slate-500">${__esc(r.provider)}</em></p>
+            </div>
         </div>`;
+    toast(ok ? __t('pages.ekyc-biometric.verified_toast') : __t('pages.ekyc-biometric.rejected_toast'), ok ? 'success' : 'error');
     renderHistory();
 };
 
 function renderHistory() {
-    document.getElementById('kyc-history').innerHTML = getKycHistory().slice(0, 10).map(k => `
-        <tr class="border-b border-slate-100 text-sm"><td class="py-2">${k.nid}</td><td>${k.name}</td>
-        <td><span class="text-xs font-bold px-2 py-0.5 rounded ${k.status === 'VERIFIED' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">${k.status}</span></td>
-        <td class="text-xs text-slate-500">${new Date(k.ts).toLocaleTimeString()}</td></tr>`).join('');
+    const history = getKycHistory().slice(0, 10);
+    document.getElementById('kyc-history').innerHTML = history.length
+        ? history.map(k => `
+            <tr>
+                <td class="mono">${__esc(k.nid)}</td>
+                <td>${__esc(k.name)}</td>
+                <td><span class="badge ${k.status === 'VERIFIED' ? 'badge-green' : 'badge-red'}">${__esc(k.status === 'VERIFIED' ? __t('common.verified') : __t('common.rejected'))}</span></td>
+                <td class="whitespace-nowrap text-xs text-slate-500">${__esc(fmtTime(k.ts))}</td>
+            </tr>`).join('')
+        : `<tr><td colspan="4" class="table-empty">${__esc(__t('pages.ekyc-biometric.history_empty'))}</td></tr>`;
 }
 renderHistory();
 </script>
 @endpush
 
 @section('content')
-<div class="grid lg:grid-cols-2 gap-6">
-    <div class="card p-5 space-y-4">
-        <h3 class="font-semibold">Simulated Porichoy e-KYC <span class="sim-badge">No real API call</span></h3>
-        <p class="text-xs text-slate-500">Dual-confirmation model demo: document match + facial liveness. Use NIDs of the form <code>SIM-XXXXXX</code>. Any other format fails.</p>
-        <input id="kyc-nid" class="input" placeholder="SIM-123456">
-        <input id="kyc-name" class="input" placeholder="Buyer name">
-        <button id="btn-kyc" class="btn-primary">🪪 Run e-KYC Verification</button>
-        <div id="kyc-out"></div>
-    </div>
-    <div class="card p-5 space-y-3">
-        <h3 class="font-semibold">Biometric Capture (real camera, local-only) <span class="sim-badge">Nothing uploaded</span></h3>
-        <video id="cam" class="rounded-lg w-full bg-slate-900" autoplay playsinline muted></video>
-        <canvas id="snap" class="hidden rounded-lg w-48"></canvas>
-        <div class="flex gap-2">
-            <button id="btn-cam" class="btn-primary text-sm">Start Camera</button>
-            <button id="btn-snap" class="btn-ghost text-sm">Capture</button>
-            <button id="btn-cam-off" class="btn-ghost text-sm">Stop</button>
+<x-page-header icon="id-card" :title="__('pages.ekyc-biometric.page_title')" :subtitle="__('pages.ekyc-biometric.page_sub')" />
+
+<div class="grid gap-6 lg:grid-cols-2">
+    <section class="card" aria-labelledby="kyc-form-title">
+        <div class="card-header">
+            <div>
+                <h2 id="kyc-form-title" class="card-title">{{ __('pages.ekyc-biometric.form_heading') }}</h2>
+                <p class="text-xs text-slate-400">{{ __('pages.ekyc-biometric.hint', ['format' => 'SIM-XXXXXX']) }}</p>
+            </div>
+            <span class="sim-badge">{{ __('pages.ekyc-biometric.badge_no_api') }}</span>
         </div>
-        <p id="cam-note" class="text-xs text-slate-500"></p>
+        <div class="card-body space-y-4">
+            <div>
+                <label for="kyc-nid" class="label">{{ __('pages.ekyc-biometric.nid_label') }}</label>
+                <input id="kyc-nid" class="input font-mono" placeholder="SIM-123456" inputmode="text" autocomplete="off">
+            </div>
+            <div>
+                <label for="kyc-name" class="label">{{ __('pages.ekyc-biometric.name_label') }}</label>
+                <input id="kyc-name" class="input" placeholder="{{ __('pages.ekyc-biometric.placeholder_name') }}" autocomplete="off">
+            </div>
+            <button type="button" id="btn-kyc" class="btn-primary">
+                <x-icon name="id-card" class="h-4 w-4" />
+                <span>{{ __('pages.ekyc-biometric.run') }}</span>
+            </button>
+            <div id="kyc-out" role="status"></div>
+        </div>
+    </section>
+
+    <section class="card" aria-labelledby="kyc-camera-title">
+        <div class="card-header">
+            <div>
+                <h2 id="kyc-camera-title" class="card-title">{{ __('pages.ekyc-biometric.camera_heading') }}</h2>
+                <p class="text-xs text-slate-400">{{ __('pages.ekyc-biometric.camera_note') }}</p>
+            </div>
+            <span class="sim-badge">{{ __('pages.ekyc-biometric.badge_no_upload') }}</span>
+        </div>
+        <div class="card-body space-y-3">
+            <div class="relative overflow-hidden rounded-lg border border-slate-200 bg-navy-950">
+                <video id="cam" class="hidden w-full" autoplay playsinline muted></video>
+                <div id="cam-placeholder" class="flex h-48 items-center justify-center px-6 text-center text-xs text-slate-400">
+                    {{ __('pages.ekyc-biometric.camera_placeholder') }}
+                </div>
+            </div>
+            <canvas id="snap" class="hidden w-40 rounded-lg border border-slate-200" aria-hidden="true"></canvas>
+            <div class="flex flex-wrap gap-2">
+                <button type="button" id="btn-cam" class="btn-primary btn-sm">
+                    <x-icon name="camera" class="h-4 w-4" />
+                    <span>{{ __('pages.ekyc-biometric.start_camera') }}</span>
+                </button>
+                <button type="button" id="btn-snap" class="btn-ghost btn-sm">{{ __('pages.ekyc-biometric.capture') }}</button>
+                <button type="button" id="btn-cam-off" class="btn-ghost btn-sm">{{ __('pages.ekyc-biometric.stop') }}</button>
+            </div>
+            <p id="cam-note" class="text-xs text-slate-500" role="status"></p>
+        </div>
+    </section>
+</div>
+
+<section class="card mt-6" aria-labelledby="kyc-history-title">
+    <div class="card-header">
+        <h2 id="kyc-history-title" class="card-title">{{ __('pages.ekyc-biometric.history_heading') }}</h2>
     </div>
-</div>
-<div class="card p-5 mt-6">
-    <h3 class="font-semibold mb-2">Verification History</h3>
-    <table class="w-full"><thead class="text-left text-xs uppercase text-slate-500"><tr><th class="py-2">NID</th><th>Name</th><th>Status</th><th>Time</th></tr></thead><tbody id="kyc-history"></tbody></table>
-</div>
+    <div class="overflow-x-auto">
+        <table class="data-table min-w-[560px]">
+            <thead>
+                <tr>
+                    <th scope="col">{{ __('pages.ekyc-biometric.col_nid') }}</th>
+                    <th scope="col">{{ __('pages.ekyc-biometric.col_name') }}</th>
+                    <th scope="col">{{ __('pages.ekyc-biometric.col_status') }}</th>
+                    <th scope="col">{{ __('pages.ekyc-biometric.col_time') }}</th>
+                </tr>
+            </thead>
+            <tbody id="kyc-history"></tbody>
+        </table>
+    </div>
+</section>
 @endsection

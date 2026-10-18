@@ -5,13 +5,17 @@
 // ============================================================
 import { getPlots, getOcrDocs } from './store.js';
 
+/** Translation helper (no-op fallback outside the browser). */
+const t = (key, replace) =>
+    (typeof window !== 'undefined' && window.__t ? window.__t(key, replace) : key);
+
 let map, layerGroup;
 
 export function initMap(elId) {
     if (map) return map;
     map = L.map(elId).setView([23.813, 90.416], 15);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors',
+        attribution: t('js.map_attribution'),
     }).addTo(map);
     layerGroup = L.layerGroup().addTo(map);
     return map;
@@ -52,11 +56,17 @@ export function renderPlots(onSelect) {
     const overlaps = new Set(findOverlaps().flat());
     plots.forEach(p => {
         const color = overlaps.has(p.id) ? '#dc2626' : (COLORS[p.mutationStatus] || '#64748b');
+        // Popup content is HTML: escape every interpolated value so synthetic
+        // record data can never inject markup.
+        const esc = (v) => (window.__esc ? window.__esc(v) : String(v));
+        const overlapNote = overlaps.has(p.id)
+            ? `<span style="color:red"><b>${esc(t('gis-map.popup_overlap'))}</b></span>`
+            : '';
         const poly = L.polygon(p.polygon, { color, fillOpacity: 0.35, weight: 2 })
-            .bindPopup(`<b>${p.plotNo}</b> (${p.mouza}, ${p.khatian})<br>
-                Owner: ${p.owner} <i>(synthetic)</i><br>
-                Mutation: ${p.mutationStatus}<br>
-                ${overlaps.has(p.id) ? '<span style="color:red"><b>⚠ Overlap detected (simulated PostGIS)</b></span>' : ''}`)
+            .bindPopup(`<b>${esc(p.plotNo)}</b> (${esc(p.mouza)}, ${esc(p.khatian)})<br>
+                ${esc(t('js.owner_synthetic', { owner: p.owner }))}<br>
+                ${esc(t('common.mutation'))}: ${esc(p.mutationStatus)}<br>
+                ${overlapNote}`)
             .on('click', () => onSelect?.(p));
         poly.addTo(layerGroup);
     });

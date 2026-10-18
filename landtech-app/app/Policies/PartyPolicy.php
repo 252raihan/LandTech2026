@@ -17,7 +17,8 @@ use App\Models\User;
  *   admin            — full access, including create/update/delete
  *   registry_officer — read + maintain party records
  *   bank_officer     — read-only (lien/CIB due diligence)
- *   citizen          — read only their own linked party record
+ *   citizen          — read only their own linked party record, and only when
+ *                      that link has been VERIFIED by a reviewer (Phase 5)
  */
 class PartyPolicy
 {
@@ -65,15 +66,19 @@ class PartyPolicy
 
     /**
      * A citizen may read a party record when that party is the user's own.
-     * Phase 3 has no users.party_id column (the users table is frozen), so the
-     * link is resolved through the identity layer: a party is "owned" by the
-     * user when the user's email matches the party's synthetic demo identity.
      *
-     * NOTE: this is a deliberately conservative placeholder. Real self-service
-     * linking needs an explicit, verified claim flow (deferred to a later phase).
+     * PHASE 5: this now resolves through `party_user_links`, and ONLY through
+     * links whose status is `verified`. A pending or rejected claim grants
+     * nothing, which is precisely what stops a citizen establishing ownership by
+     * asserting an NID or Party ID.
+     *
+     * Before any link is verified this returns false for everyone, preserving the
+     * conservative Phase 3 behaviour exactly.
      */
     protected function owns(User $user, Party $party): bool
     {
-        return false;
+        return $user->verifiedPartyLinks()
+            ->where('party_id', $party->id)
+            ->exists();
     }
 }

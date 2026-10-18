@@ -3,6 +3,10 @@
 // S_transfer ≤ S_legal. Pure client-side math.
 // ============================================================
 
+/** Translation helper (no-op fallback outside the browser). */
+const t = (key, replace) =>
+    (typeof window !== 'undefined' && window.__t ? window.__t(key, replace) : key);
+
 /** Validate faraz shares sum to exactly 1.0 */
 export function validateShares(shares) {
     const sum = shares.reduce((a, s) => a + Number(s.share || 0), 0);
@@ -25,8 +29,8 @@ export function validateTransfer(legalShares, transfer) {
         transferShare: transfer.share,
         valid: !exceeds,
         message: exceeds
-            ? `INVALID: transfer share (${transfer.share}) exceeds seller's legal share (${sellerShare})`
-            : `VALID: transfer (${transfer.share}) ≤ seller's legal share (${sellerShare})`,
+            ? t('faraz-calculator.invalid_transfer', { share: transfer.share, legal: sellerShare })
+            : t('faraz-calculator.valid_transfer', { share: transfer.share, legal: sellerShare }),
     };
 }
 
@@ -44,5 +48,5 @@ export function equalSplit(heirs) {
 export function fractionToAnkra(f) {
     const anka = Math.floor(f * 16);
     const shata = Math.round((f * 16 - anka) * 100);
-    return `${anka} Anka ${shata} Shata`;
+    return t('js.ankra_format', { anka, shata });
 }

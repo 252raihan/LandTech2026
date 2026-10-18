@@ -6,11 +6,15 @@
 import { getKyc, saveKyc, pushEvent, uid, nowISO } from './store.js';
 import { appendLedger } from './crypto.js';
 
+/** Translation helper (no-op fallback outside the browser). */
+const t = (key, replace) =>
+    (typeof window !== 'undefined' && window.__t ? window.__t(key, replace) : key);
+
 /** Simulated Porichoy verification — deterministic pass on SIM- NIDs with >85% confidence roll. */
 export function verifyKyc(nid, name) {
     const result = {
         id: uid('kyc'), nid, name, ts: nowISO(),
-        provider: 'SIMULATED-Porichoy (no real API call)',
+        provider: t('js.kyc_provider'),
         status: null, confidence: null,
         faceMatch: null, liveness: null,
     };

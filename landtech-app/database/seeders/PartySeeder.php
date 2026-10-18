@@ -7,7 +7,6 @@ use App\Models\Party;
 use App\Models\PartyIdentity;
 use App\Models\Plot;
 use App\Models\PlotOwnership;
-use App\Models\Role;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 
@@ -26,18 +25,23 @@ use Illuminate\Database\Seeder;
  * plot+party pair), so re-running the seeder updates in place instead of
  * duplicating. Existing primary keys are preserved, which keeps
  * `plots.mouza_id` and `plot_ownerships.*` references valid.
+ *
+ * PRIVILEGE SAFETY (Phase 4 / H1)
+ * -------------------------------
+ * This seeder no longer promotes "whichever user happens to be row 1". The
+ * officer identity is passed in explicitly by DatabaseSeeder, and the role is
+ * attached only when the application environment is local or testing. In any
+ * other environment this seeder creates reference/domain data only and grants
+ * no privileged role at all.
  */
 class PartySeeder extends Seeder
 {
-    public function run(): void
+    /**
+     * @param  User|null  $registryOfficer  Explicit demo officer, or null to seed
+     *                                      data with no privileged attribution.
+     */
+    public function run(?User $registryOfficer = null): void
     {
-        $roles = Role::pluck('id', 'name');
-        $registryOfficer = User::query()->first();
-
-        if ($registryOfficer && isset($roles[Role::REGISTRY_OFFICER])) {
-            $registryOfficer->roles()->syncWithoutDetaching([$roles[Role::REGISTRY_OFFICER]]);
-        }
-
         $mouzas = Mouza::query()->orderBy('id')->get();
 
         if ($mouzas->isEmpty()) {

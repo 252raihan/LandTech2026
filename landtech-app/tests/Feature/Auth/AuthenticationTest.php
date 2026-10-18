@@ -27,7 +27,28 @@ class AuthenticationTest extends TestCase
         ]);
 
         $this->assertAuthenticated();
-        $response->assertRedirect(route('dashboard', absolute: false));
+
+        // Phase 4: a role-less account is not silently sent to the public demo
+        // dashboard; it lands on the honest pending page instead.
+        $response->assertRedirect(route('account.pending', absolute: false));
+    }
+
+    public function test_a_citizen_authenticates_and_lands_on_the_citizen_dashboard(): void
+    {
+        $user = User::factory()->create();
+        $role = \App\Models\Role::query()->firstOrCreate(
+            ['name' => \App\Models\Role::CITIZEN],
+            ['label_en' => 'Citizen', 'label_bn' => 'নাগরিক']
+        );
+        $user->roles()->syncWithoutDetaching([$role->id]);
+
+        $response = $this->post('/login', [
+            'email' => $user->email,
+            'password' => 'password',
+        ]);
+
+        $this->assertAuthenticated();
+        $response->assertRedirect(route('citizen.dashboard', absolute: false));
     }
 
     public function test_users_can_not_authenticate_with_invalid_password(): void

@@ -1,12 +1,25 @@
-<form method="POST" action="{{ route('locale.switch') }}" class="flex items-center gap-1.5" aria-label="{{ __('app.switch_language') }}">
+{{--
+    Language switcher.
+
+    Kept as a native <select> inside a POST form: it is keyboard accessible by
+    default, works without JavaScript (the <noscript> submit button covers that)
+    and the LocaleSwitchingTest asserts that #locale-select exists.
+--}}
+<form method="POST" action="{{ route('locale.switch') }}" class="flex items-center gap-2">
     @csrf
-    <label for="locale-select" class="text-xs text-slate-500">{{ __('app.language') }}</label>
+    <label for="locale-select" class="flex items-center gap-1.5 text-xs font-semibold text-slate-500">
+        <x-icon name="language" class="hidden h-4 w-4 sm:block" />
+        <span class="hidden sm:inline">{{ __('pages.layout.language') }}</span>
+        <span class="sr-only sm:hidden">{{ __('pages.layout.language') }}</span>
+    </label>
     <select id="locale-select" name="locale" onchange="this.form.submit()"
-            class="text-xs border border-slate-300 rounded px-1.5 py-1 bg-white text-slate-700">
+            class="input !w-auto !px-2.5 !py-1.5 text-xs font-medium"
+            aria-label="{{ __('pages.layout.switch_language') }}">
         @foreach (config('app.available_locales', []) as $code => $label)
-            <option value="{{ $code }}" @selected(app()->getLocale() === $code)
-                    aria-current="{{ app()->getLocale() === $code ? 'true' : 'false' }}">{{ $label }}</option>
+            <option value="{{ $code }}" lang="{{ $code }}" @selected(app()->getLocale() === $code)>{{ $label }}</option>
         @endforeach
     </select>
-    <noscript><button type="submit" class="text-xs underline text-slate-600">{{ __('app.switch_language') }}</button></noscript>
+    <noscript>
+        <button type="submit" class="btn-primary btn-sm">{{ __('pages.layout.switch_language') }}</button>
+    </noscript>
 </form>

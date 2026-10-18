@@ -5,6 +5,10 @@
 import { getLiens, saveLiens, getPlots, pushEvent, uid, nowISO } from './store.js';
 import { appendLedger } from './crypto.js';
 
+/** Translation helper (no-op fallback outside the browser). */
+const t = (key, replace) =>
+    (typeof window !== 'undefined' && window.__t ? window.__t(key, replace) : key);
+
 // Re-export the registry accessors so page scripts can import the whole
 // lien API from one module (liens.js), matching how the pages already use it.
 export { getLiens, saveLiens, getPlots };
@@ -21,7 +25,7 @@ export function addLien(plotId, bank, amount) {
     const lien = {
         id: uid('lien'), plotId, bank, amount: Number(amount),
         status: 'ACTIVE', createdAt: nowISO(),
-        source: 'SIMULATED-CIB (not connected to any bank)',
+        source: t('js.cib_source'),
     };
     const liens = getLiens();
     liens.push(lien);
@@ -47,6 +51,6 @@ export function issueENOC(lienId) {
 
 export function registrationBlockedByLien(plotId) {
     return plotHasActiveLien(plotId)
-        ? 'BLOCKED: active bank lien — e-NOC required before registration (simulated CIB check)'
+        ? t('js.lien_blocked')
         : null;
 }

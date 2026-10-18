@@ -5,6 +5,10 @@
 // ============================================================
 import { getDeeds, saveDeeds, getLedger, saveLedger, uid, nowISO, pushEvent } from './store.js';
 
+/** Translation helper (no-op fallback outside the browser). */
+const t = (key, replace) =>
+    (typeof window !== 'undefined' && window.__t ? window.__t(key, replace) : key);
+
 async function sha256Hex(text) {
     const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
     return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
@@ -44,7 +48,7 @@ export async function dynamicQrPayload(deed) {
 export async function verifyDeed(deedId, pastedJson) {
     const deeds = getDeeds();
     const deed = deeds.find(d => d.id === deedId);
-    if (!deed || !deed.hash) return { ok: false, reason: 'Deed not found or not hashed' };
+    if (!deed || !deed.hash) return { ok: false, reason: t('js.deed_not_hashed') };
     const recomputed = await sha256Hex(pastedJson.trim());
     const match = recomputed === deed.hash;
     appendLedger(match ? 'DEED_VERIFIED_OK' : 'DEED_TAMPER_DETECTED', { deedId, match });
