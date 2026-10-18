@@ -1,722 +1,977 @@
-# LandTech 2026 — Fraud & Multiple-Sale Detection
+# LandTech 2026 — Fraud & Multiple-Sale Detection for Land Transactions
 
-> ⚠️ **Two distinct halves — read this first.**
+**Problem statement P3 · a two-layer prototype for Bangladesh: a real, tested Laravel
+application + a browser-side demonstration of ten fraud-detection modules.**
+
+LandTech 2026 explores one question: *how could a land-transaction system catch forged
+deeds, double sales, rapid resale chains and registration-vs-mutation mismatches before
+the transaction completes — while keeping an auditable trail of every step?*
+
+> **Honest scope — read this before anything else.**
 >
-> **1. The public M1–M10 module pages (`/dashboard`, `/saga`, `/sync-webhook`, …) are a
-> frontend-only demo prototype.** Every "integration" on those pages — government
-> registries, Porichoy e-KYC, bank/CIB lien checks, Redis locking, AI/OCR, PostGIS
-> spatial queries and blockchain — is a **browser-side simulation with synthetic data**,
-> persisted in LocalStorage. No real integration exists on those pages and none is claimed.
->
-> **2. The role-based panels (`/citizen/*`, `/admin/*`, `/registry/*`, `/bank/*`) are a
-> real, database-backed Laravel application** with server-side authentication,
-> authorization policies, Eloquent models, migrations and an automated test suite. These
-> panels store genuine records in a database — but they are still a **development
-> system**: no government API, e-KYC, bank/CIB or GIS integration is connected, and no
-> land record is verified against any official registry. Every "verification" outcome in
-> the app is either a self-reported claim or a rule-based check.
+> - The **public module pages** (M1–M10: `/dashboard`, `/saga`, `/crypto-verify`, …) are a
+>   **browser-side simulation**. Every "external" system they portray — government
+>   registries, Porichoy e-KYC, bank/CIB lien checks, Redis locking, OCR/AI, PostGIS,
+>   blockchain — is **simulated with synthetic data** in the browser's LocalStorage.
+>   No external system is contacted anywhere in this repository.
+> - The **role-based panels** (`/citizen/*`, `/admin/*`, `/registry/*`, `/bank/*`) are a
+>   **real Laravel application**: server-side authentication, four roles, policies,
+>   database-backed workflows and a 242-test suite. But no government, e-KYC, bank or
+>   GIS integration is connected, and reviewer workflows (officer approval, listing
+>   publication, record verification) are **not implemented yet** — they are documented
+>   as incomplete throughout this file.
+> - As built, this prototype **does not prevent real-world fraud**. Its detection logic
+>   is rule-based, its demo data is fictional, and its value is the demonstrated
+>   workflow and working backend core.
+
+## Table of Contents
+
+1. [Project Overview](#1-project-overview)
+2. [Problem and Proposed Solution](#2-problem-and-proposed-solution)
+3. [Project Capabilities at a Glance](#3-project-capabilities-at-a-glance)
+4. [System Architecture](#4-system-architecture)
+5. [The Ten Modules (M1–M10)](#5-the-ten-modules-m1m10)
+6. [End-to-End Workflow](#6-end-to-end-workflow)
+7. [Practical Demo Scenarios](#7-practical-demo-scenarios)
+8. [Technology Stack and Project Structure](#8-technology-stack-and-project-structure)
+9. [Installation and Execution](#9-installation-and-execution)
+10. [Security, Limitations, and Integration Status](#10-security-limitations-and-integration-status)
+11. [Future Roadmap](#11-future-roadmap)
 
 ---
 
-## 1. Project Overview & Problem Statement
+## 1. Project Overview
 
-**LandTech 2026, Problem P3 — Fraud & Double-Selling Detection.**
-The problem statement calls for a system that can detect:
+### What LandTech 2026 is
 
-- **Forged documents** — deed copies that have been altered or fabricated.
-- **Same plot sold to multiple buyers** — multiple valid-looking deeds against one khatian/plot.
-- **Suspicious rapid transfers** — an implausibly fast chain of ownership changes.
-- **Registration ↔ mutation record mismatch** — a deed that is registered but not reflected in the mutation record.
+A prototype for the P3 challenge: a system that helps detect land-transaction fraud in
+Bangladesh. It has two independent layers that run from the same Laravel application:
 
-This repository contains **two layers**:
+1. **A real application layer** — user accounts, four roles (`admin`,
+   `registry_officer`, `bank_officer`, `citizen`), and citizen workflows for land
+   records, documents, sale listings, ownership claims, buyer search and verification
+   requests. This layer uses a database, enforces authorization with middleware and
+   policies, encrypts NID values, and is covered by an automated test suite.
+2. **A public demonstration layer** — twelve pages that simulate the intended
+   production system through ten fraud-detection modules (M1–M10): event
+   synchronization, cryptographic deed hashing, plot locking, e-KYC, lien checks,
+   rule-based conflict detection, inheritance-share math, GIS overlap checks, risk
+   scoring, a hash-chained audit ledger, and a Saga orchestrator with compensation.
 
-- A **Laravel 12 backend application** (`app/`, `routes/`, `database/`, `resources/views/`)
-  implementing authentication, four user roles, ownership linking, land records,
-  document storage, sale listings, buyer interest and verification requests — all
-  enforced server-side by policies and middleware. This layer uses a real database
-  (SQLite by default) and is covered by a PHPUnit feature suite.
-- A **client-side demonstration layer** (12 Blade pages + `public/js/*.js`) that shows the
-  intended M1–M10 workflows — locking, cryptographic hashing, conflict detection, Saga
-  rollback — as browser simulations with synthetic data. This layer is *not* connected to
-  the backend and is preserved as a presentation artifact.
+The two layers **do not share data**. The demo pages store everything in the browser's
+LocalStorage; the application stores everything in SQLite. Resetting the demo never
+touches the database.
 
----
+### The problem
 
-## 2. Public Demo Module Pages — 12 Pages & 10 Engine Modules
+Land fraud in Bangladesh often exploits a structural gap: **registration** (sub-registry
+offices) and **mutation** (land office ownership records) live in separate systems, and
+verification depends on manual cross-checking. Common fraud patterns:
 
-> These 12 pages are the **frontend-only simulation layer** described in the warning above.
-> They are publicly reachable, are not backed by the database, and share no data with the
-> role-based panels in §2b.
+- **Forged or altered deed documents** presented as originals.
+- **The same plot sold to multiple buyers**, each holding a genuine-looking deed.
+- **Rapid resale chains** that move ownership implausibly fast.
+- **Registered but unmutated deeds** — the deed exists, the ownership record does not.
 
-### Pages (12)
+By the time a buyer discovers the problem, the seller is gone and the paper trail is
+hard to reconstruct.
 
-| Route | Page | What it demonstrates |
+### What the prototype demonstrates today
+
+| Area | Demonstrated by | Nature |
 |---|---|---|
-| `/dashboard` | Command Dashboard | Stat cards (plots, deeds, high-risk plots, KYC count), a Chart.js risk-score bar chart, a doughnut chart of simulated webhook event types, "Rescan" and "Reset demo" buttons. Seeds demo data on first load. |
-| `/saga` | Saga Orchestration | The simulated distributed transaction workflow (see §7). |
-| `/sync-webhook` | M1 · Sync & Webhook Layer | In-browser simulated event bus / topic feed with event history. |
-| `/crypto-verify` | M2 · Cryptographic Verification | Real SHA-256 hashing of deed records via the Web Crypto API, hash verification, dynamic QR payload generation, and a simulated hash-chain ledger. |
-| `/plot-lock` | M3 · Real-Time Plot Lock | Simulated Redlock-style in-browser locks with a 5-minute TTL, using the key pattern `LOCK:LAND:<District>:<Upazila>:<Mouza>:<Khatian>:<Plot>`. |
-| `/ekyc-biometric` | M4 · e-KYC & Biometric Gateway | Simulated Porichoy KYC (NID + name check) plus an **optional real camera preview** via `getUserMedia` and a local canvas photo capture (photo is not uploaded anywhere). |
-| `/bank-lien` | M5 · Bank Lien Registry | Simulated lien registry: add liens, issue a simulated e-NOC to release a lien, and see registration blocked while a lien is active. |
-| `/ai-ocr-conflict` | M6 · AI/OCR Conflict Detection | **Rule-based** simulated OCR extraction on synthetic deed records plus cross-record conflict detection (duplicate buyers, survey-type mismatch, rapid chains). |
-| `/faraz-calculator` | M7 · Faraz Share Calculator | Inheritance-share math: enforce Σ shares = 1.0, block transfers exceeding a seller's legal share, equal-split helper, ankra (fraction) display. |
-| `/gis-map` | M8 · GIS Spatial Mapping | Leaflet + OpenStreetMap polygons for the 12 synthetic plots, with a rule-based bounding-box overlap report. |
-| `/risk-scoring` | M9 · Public Risk Scoring | Per-plot composite risk score (0–100) with risk bands and a simulated "check before you buy" result. |
-| `/audit-ledger` | M10 · Immutable Audit Ledger | Hash-chained append-only ledger (real SHA-256 for block hashes) with chain verification and a "Simulate Tamper Attack" button. |
+| Tamper detection for deed documents | M2 (SHA-256 hashing) | Real hashing, synthetic records |
+| Multiple-sale and rapid-transfer detection | M6 rule engine, M9 scoring | Rule-based, synthetic data |
+| Transaction locking and conflict refusal | M3, Saga step 1 | Simulated lock (no Redis) |
+| Identity verification flow | M4, Saga step 2 | Simulated e-KYC, real local camera |
+| Encumbrance blocking | M5, Saga step 3 | Simulated liens / e-NOC |
+| Inheritance-share validation | M7 | Real arithmetic, client-side |
+| Spatial conflict check | M8, Saga step 4 | Real map tiles, synthetic polygons |
+| Composite risk score per plot | M9 | Rule-based, transparent weights |
+| Tamper-evident audit trail | M10 | Real SHA-256 chain, browser-only |
+| Ordered transaction flow with rollback | Saga orchestrator | Real orchestration logic |
+| Secure backend core | Laravel app | Real, tested (auth, roles, policies) |
 
-### Engine modules (10, in `public/js/`)
+### Who would benefit
 
-| Module | File | Key exports |
-|---|---|---|
-| M1 · Sync & Webhook Layer | `webhook.js` | `TOPICS`, `subscribe`, `emit`, `recentEvents` |
-| M2 · Cryptographic Verification | `crypto.js` | `computeDeedHash`, `hashAllDeeds`, `dynamicQrPayload`, `verifyDeed`, `appendLedger`, `verifyLedgerChain`, `tamperLedger` |
-| M3 · Real-Time Plot Lock | `locks.js` | `activeLocks`, `isLocked`, `acquireLock`, `releaseLock`, `setPendingMutationFlag`, `isTransferBlocked` |
-| M4 · e-KYC & Biometric Gateway | `kyc.js` | `verifyKyc`, `startCamera`, `stopCamera`, `capturePhoto`, `getKycHistory` |
-| M5 · Bank Lien Registry | `liens.js` | `activeLiensForPlot`, `plotHasActiveLien`, `addLien`, `issueENOC`, `registrationBlockedByLien` |
-| M6 · AI/OCR Conflict Detection | `ocr.js` | `simulateOcrExtract`, `detectConflicts`, `getLatestScan` |
-| M7 · Faraz Share Calculator | `faraz.js` | `validateShares`, `validateTransfer`, `equalSplit`, `fractionToAnkra` |
-| M8 · GIS Spatial Mapping | `map.js` | `initMap`, `intersects`, `findOverlaps`, `renderPlots`, `focusPlot` |
-| M9 · Public Risk Scoring | `risk.js` | `scorePlot`, `scoreAll`, `publicCheck` |
-| M10 · Immutable Audit Ledger | `crypto.js` (ledger half) + `ledger` storage in `store.js` | `appendLedger`, `verifyLedgerChain`, `tamperLedger` |
+- **Citizens and buyers** — a "check before you buy" risk report and verified flows.
+- **Sub-registry and land offices** — conflict detection they currently do by hand.
+- **Banks** — lien visibility before collateral changes hands.
+- **Policymakers** — a worked design for connecting registration and mutation systems.
 
-Supporting modules: `store.js` (LocalStorage mock "database"), `seed.js` (synthetic
-dataset), `saga.js` (Saga orchestration engine).
+### Value proposition
+
+The project is not a slide deck. The detection rules are **runnable and inspectable**,
+the transaction flow executes with real compensation logic, the cryptographic checks
+use real SHA-256, and the backend access-control core is implemented and tested.
+It shows what "traceable land transactions" could concretely look like — and documents
+precisely where the simulation ends and real integration would have to begin
+(see [§10](#10-security-limitations-and-integration-status)).
 
 ---
 
-## 2B. User Roles, Permissions, and Features
+## 2. Problem and Proposed Solution
 
-> **Scope.** This section documents the **database-backed Laravel application** (the
-> role-based panels from the warning at the top), not the public M1–M10 simulation
-> pages. It covers the four roles that actually exist in code — `admin`,
-> `registry_officer`, `bank_officer`, `citizen` (`app/Models/Role.php`,
-> `database/seeders/RoleSeeder.php`). `super_admin` does **not** exist: the Welcome
-> page shows its card as "Coming Soon", and the role-assignment tests assert it cannot
-> be obtained by registering.
->
-> **How to read the permission claims.** Three independent layers exist and must not be
-> conflated:
->
-> 1. **Route middleware** (`EnsureRole`) — a user whose roles do not match receives 403
->    even when the URL is typed by hand. There is no citizen bypass for officer routes,
->    and officer/admin roles cannot enter `/citizen/*`.
-> 2. **Policies** (`app/Policies/*`, registered in `AppServiceProvider`) — authorize each
->    object-level action (create/view/update/delete/review). Controllers call
->    `authorize()` before acting.
-> 3. **UI visibility** — `@can` checks and the sidebar's `hasRole()` calls only decide
->    whether a link or button is rendered. They are cosmetic and are never the security
->    boundary.
->
-> Matrix markers: **Yes** = policy allows it and a route/UI exposes it; **Yes\*** =
-> policy allows it but **no route/UI invokes it in this build** (authorization exists,
-> reachability is **Unverified** at HTTP level); **Owner** = owner-scoped (the citizen's
-> own data only, via routes); **No** = denied by the policy.
+Each fraud pattern is mapped to the detection or verification approach the prototype
+implements, the responsible module, and the result the demo actually produces.
 
-### Roles at a glance
-
-| Role (code) | Label (EN / BN) | Purpose | Implemented UI |
+| Land-related problem | Proposed approach | Module | Result demonstrated by the prototype |
 |---|---|---|---|
-| `admin` | Administrator / প্রশাসক | Highest-privilege role: party management, bulk identity export, reviewer powers everywhere. | Placeholder landing page only |
-| `registry_officer` | Registry Officer / রেজিস্ট্রি কর্মকর্তা | Reviewer of ownership links, land records, documents, listings and verification requests; full-NID and NID-search access. | Placeholder landing page only |
-| `bank_officer` | Bank Officer / ব্যাংক কর্মকর্তা | Read-only due-diligence role: party read + masked NID read; no writes, no full NID. | Placeholder landing page only |
-| `citizen` | Citizen / নাগরিক | Self-service account holder; the only role with fully implemented workflows. Public registration grants exactly this role. | Full `/citizen/*` panel |
+| Forged / altered deed copies | SHA-256 hash of the deed's canonical data; re-hash and compare | M2 | A simulated forgery is detected, both hashes are shown, `DEED_TAMPER_DETECTED` is written to the ledger |
+| Same plot sold to multiple buyers | Group deeds per plot; more than one deed raises a CRITICAL conflict and a score weight | M6, M9 | Seeded `P-103` (2 deeds) is flagged CRITICAL; plot scores jump by +40 |
+| Implausible rapid resale chain | Compare successive registration dates per plot; gaps under 30 days raise HIGH conflicts | M6, M9 | Seeded `P-107` (3 deeds, 1/4/7 days old) produces two rapid-transfer findings |
+| Registration ↔ mutation mismatch | Flag plots marked `PENDING_MUTATION` that already have registered deeds | M6, M9 | MEDIUM findings for affected plots; +20 to their risk score |
+| Selling mortgaged / encumbered land | Active-lien check returns a block reason; sale flow refuses to continue | M5, Saga | `P-109`'s seeded lien aborts the Saga at step 3 until an e-NOC is issued |
+| Identity impersonation | NID format validation plus probabilistic face-match/liveness signals | M4, Saga | Rejected or malformed KYC aborts the transfer flow |
+| Two simultaneous transfers on one plot | Time-limited lock with holder token; second acquisition refused | M3, Saga | A second acquire on a locked plot is refused; Saga aborts on a locked plot |
+| Over-transfer of inheritance shares | Shares must sum to 1.0; a transfer may not exceed the seller's legal share | M7 | Transferring 0.5 of a 0.4 share is rejected; 0.2 is accepted |
+| No trustworthy history after the fact | Append-only hash-chained ledger; any edit breaks the chain | M10 | "Simulate tamper" is detected at the exact broken block |
+| Registry systems out of sync | Shared event stream for deed/lock/KYC/lien/conflict events | M1 | Live event feed (simulated broker) other pages read and write |
 
-Notes:
+> **Scope note.** Every row above describes behavior inside the prototype — synthetic
+> data, browser-side rules. No row claims a real-world integration or guarantee; see
+> [§10](#10-security-limitations-and-integration-status).
 
-- An authenticated account holding **no recognized role** is sent to `/account/pending`
-  (`auth` only) — deliberately not the public demo dashboard — and can additionally use
-  `/profile`.
-- When one account holds several roles, the post-login landing resolves by a fixed
-  precedence — `admin` → `registry_officer` → `bank_officer` → `citizen`
-  (`App\Support\Auth\LandingPage`). That is a landing preference only: roles do not
-  cascade, and each panel stays behind its own `role:` gate.
-- Roles are granted by seeding/admin database work only. There is no public path to a
-  privileged role: registration discards role-shaped input, and the profile update
-  cannot attach roles (`tests/Feature/Auth/RoleAssignmentSecurityTest.php`).
+---
 
-### `admin` — Administrator
+## 3. Project Capabilities at a Glance
 
-- **Dashboard and route access:** `/admin/dashboard` (`admin.dashboard`, middleware
-  `auth` + `role:admin`), plus `/profile` and all public pages. Any other role gets 403.
-- **Features:** the dashboard body is an explicitly labelled placeholder
-  (`resources/views/officer/pending.blade.php`) stating the operational dashboard is
-  pending; it fabricates no data. There is no user-management, review, settings or
-  audit UI.
-- **Create / view / update / delete / approval (policy-level, all currently
-  unrouted — Yes\*):** Party view/create/update/delete/export; reviewer abilities on
-  ownership links, land records, documents, listings (including `publish`,
-  `setVerificationStatus`, `markSold`) and verification requests — never on an item the
-  admin submitted themselves; masked NID view, full NID view, NID search and bulk
-  identity export.
-- **Sensitive NID and document access:** broadest by policy. Identity reads are only
-  legal through `IdentityAccessService`, which appends a hash-chained
-  `SensitiveReadAudit` row per action; no HTTP route calls that service in this build,
-  so full/masked NID disclosure is not reachable through the app.
-- **Audit log and QR:** identity reads *would be* recorded in the server-side audit
-  chain; there is no audit-viewer route for any role (the public `/audit-ledger` page is
-  a browser-local simulation and unrelated). No backend QR feature exists.
-- **Restrictions and incomplete workflows:** no admin operations UI at all; deleting a
-  party or exporting identities cannot be done from the UI; `super_admin` is not
-  implemented.
+Status vocabulary: **Implemented** (works and is tested) · **Implemented (client-side)**
+(real logic, but runs only in the browser) · **Simulated** (real UI and flow logic over
+synthetic data, no external system) · **Partial** (works with notable gaps) ·
+**Not integrated** (planned only).
 
-### `registry_officer` — Registry Officer
+### 3.1 Implemented application functionality (Laravel, database-backed)
 
-- **Dashboard and route access:** `/registry/dashboard` (`registry.dashboard`,
-  `auth` + `role:registry_officer`), plus `/profile` and all public pages. Other roles
-  get 403.
-- **Features:** placeholder landing page only (`officer.pending`). No review queue.
-- **Create / view / update / delete / approval (policy-level, all currently
-  unrouted — Yes\*):** Party view/create/update (no delete, no export); reviewer
-  abilities on all five citizen workflows, always excluding self-submitted items;
-  masked NID view, full NID view, NID search. No identity export.
-- **Sensitive NID and document access:** full NID + NID search allowed by policy and
-  intended to be audited through `IdentityAccessService`; reviewer document reads
-  allowed by policy. None of it is routed yet.
-- **Audit log and QR:** same as `admin` — by design audited, no viewer in the UI, no QR.
-- **Restrictions and incomplete workflows (important):** because `review`, `publish`,
-  `recordCheck` and link approval have **no route or UI**, this role cannot actually
-  complete any approval in the running app. Submitted records, claims, listings and
-  requests stay in their pending statuses unless the database is changed outside the
-  UI. This is the largest incomplete workflow in the backend.
+| Feature | Purpose | Implementation location | Status |
+|---|---|---|---|
+| Authentication & session security | Login, registration, password reset/confirmation/update; login and registration throttled | `routes/auth.php`, Breeze controllers | Implemented (tested) |
+| Four roles + route middleware | Restrict each panel to its role; 403 on mismatch | `app/Http/Middleware/EnsureRole.php`, `bootstrap/app.php` | Implemented (tested) |
+| Object-level policies (8) | Owner-scoped access; reviewers can never review their own submissions | `app/Policies/*` | Implemented; reviewer abilities **unrouted** |
+| Citizen land records | Create/edit/submit a land record; submitted records stay *pending verification* | `app/Http/Controllers/Citizen/*` | Implemented; reviewer states unreachable |
+| Private document vault | Upload/download own documents through a private disk | `app/Services/LandDocumentService.php` | Implemented (tested) |
+| Sale listings & buyer interest | Draft/submit listings; express and withdraw interest | `app/Http/Controllers/Citizen/*` | Implemented; *published* state unreachable |
+| Ownership links (party claims) | Link an account to a party; pending/verified claim states | models + policies | Implemented; approval unreachable |
+| Identity privacy toolbox | NID encrypted at rest, keyed-HMAC lookup, masking, audited reads | `app/Support/Identity/*`, `app/Services/IdentityAccessService.php`, `app/Support/Audit/AuditChain.php` | Implemented & tested; **not wired to HTTP routes** |
+| EN/BN localization | Bilingual UI and JS dictionary; session locale | `lang/en/*`, `lang/bn/*`, `SetLocale`, `/lang.js` | Implemented (724 keys, 0 missing) |
+| Demo Mode | One-click entry into seeded demo accounts, gated | `config/landtech.php`, `DemoPanelController` | Implemented; off by default |
+| Database seeding | Geo data, roles, parties, demo accounts (idempotent) | `database/seeders/*` | Implemented (tested) |
+| Automated test suite | Feature/unit coverage of the backend | `tests/` (26 files) | Implemented — **242 passing / 1048 assertions** |
 
-### `bank_officer` — Bank Officer
+### 3.2 Simulated browser demonstration (`public/js/*` + demo pages)
 
-- **Dashboard and route access:** `/bank/dashboard` (`bank.dashboard`,
-  `auth` + `role:bank_officer`), plus `/profile` and all public pages. Other roles get
-  403.
-- **Features:** placeholder landing page only.
-- **Create / view / update / delete / approval (policy-level, currently unrouted —
-  Yes\*):** Party `viewAny`/`view` and masked identity view only.
-- **Denied by policy:** party create/update/delete, full NID, NID search, identity
-  export, and every reviewer ability. `PartyIdentityPolicy` deliberately bars bank
-  officers from full NIDs — they need lien status, not identity numbers.
-- **Sensitive NID and document access:** masked NID only by policy; no document access
-  at all.
-- **Audit log and QR:** none.
-- **Restrictions and incomplete workflows:** no lien/CIB workflow exists in the backend;
-  the "lien registry" is a browser simulation on the public M5 page only.
+| Module | What it demonstrates | Status |
+|---|---|---|
+| M1 Sync & Webhook | Shared event stream for all modules | Simulated (its pub/sub wrapper is unused by pages) |
+| M2 Crypto Verification | Real SHA-256 deed hashing, verify/forgery, QR payload | Implemented (client-side); registry side simulated |
+| M3 Plot Lock | 5-minute lock with holder token | Simulated (LocalStorage; no Redis) |
+| M4 e-KYC Gateway | NID format rule, probabilistic match, local camera | Simulated KYC; camera is real and stays local |
+| M5 Bank Lien Registry | Lien registry, block reason, simulated e-NOC | Simulated |
+| M6 AI/OCR Conflict Detection | Four rule-based conflict checks | Simulated; **one of four rules is unreachable** |
+| M7 Faraz Share Calculator | Sum-to-1 and legal-share validation, ankra display | Implemented (client-side) |
+| M8 GIS Spatial Mapping | Real OSM tiles + overlap report | Real tiles; simulated spatial query |
+| M9 Risk Scoring | Transparent 0–100 composite score | Implemented (client-side) |
+| M10 Audit Ledger | Hash-chained append-only ledger + tamper demo | Implemented (client-side); browser-local only |
+| Saga orchestrator | 5-step transfer flow with compensation | Simulated steps; real orchestration/compensation logic |
+| Smoke test | 12-page Playwright page-load check | Implemented; run manually |
 
-### `citizen` — Citizen
+### 3.3 Not integrated (planned only)
 
-- **Dashboard and route access:** every `/citizen/*` route (`auth` + `role:citizen`),
-  plus `/profile` and the public pages. Admin, registry and bank roles are refused on
-  `/citizen/*` with 403 (and a citizen is refused on their dashboards). Post-login
-  landing is `/citizen/dashboard`.
-- **Features (implemented, database-backed):**
-  - **Seller/buyer modes** — `/citizen/modes`; switching (`POST /citizen/mode`) writes a
-    session navigation hint only and grants nothing. The mode-select page shows real
-    counts (verified link, pending records, published listings, open requests).
-  - **Land records** — `/citizen/land`: create, edit, submit for review, request a
-    correction, delete while still a draft. A submission is a *claim*: it enters
-    `pending_verification`, is owner-scoped end to end, and can never be self-verified.
-    A `party_id` is attached only when a **verified** link exists.
-  - **Private documents** — `/citizen/documents`: upload (PDF/JPG/PNG, max 10 MB,
-    extension and MIME both checked), list, view metadata, download, delete while
-    pending. Files are stored on the private `local` disk under a server-generated
-    random name; the authorized download route is the only path to the bytes.
-  - **Sale listings** — `/citizen/listings`: create, edit, submit, withdraw; the offered
-    share cannot exceed the linked land record's claimed share. `verification_status` is
-    never writable by a citizen, and `published`/`sold` require reviewer actions that
-    have no route yet, so a citizen listing can reach `pending_review`/`withdrawn` but
-    not `published` through the UI.
-  - **Ownership link (user ↔ party)** — `/citizen/ownership-link`: file a claim, amend
-    or withdraw it while pending. Only a `verified` link grants authority over that
-    party; claims match on non-sensitive identifiers (display name, date of birth,
-    organisation registration number) and no raw NID is accepted or revealed.
-  - **Buyer search** — `/citizen/find`: browse/filter *published* listings only, via a
-    fixed public-field projection (no NID, no private documents).
-  - **Verification requests** — `/citizen/verification`: request verification for any
-    land reference (a listing is optional), view per-check results, supply additional
-    information when asked, re-run the internal checks. The checks are rule-based
-    internal consistency tests; checks needing external authorities are stored as
-    `not_available` with an explicit limitation, and `official_status` is permanently
-    `official_verification_not_available` — the UI never claims government verification.
-  - **Interest requests** — `/citizen/interest` and `/citizen/interest-received`:
-    express interest in another citizen's published listing (not your own), view and
-    withdraw your own enquiries, and respond as the listing owner.
-  - **Account** — `/citizen/notifications` (honest empty state; no `notifications` table
-    exists), `/citizen/help`, `/citizen/profile`, `/citizen/security`.
-- **Create / view / update / delete / approval:** full owner CRUD on the workflows
-  above; **no approval ability of any kind** — a citizen cannot verify a link, verify a
-  record, review a document, publish/verify a listing or approve a verification request,
-  not even their own. Separation of duties is enforced in the policies, not the UI.
-- **Sensitive NID and document access:** no NID access at all (not even masked); only
-  their own documents, through authorized routes.
-- **Audit log and QR:** none in the backend. Public `/audit-ledger` and
-  `/crypto-verify` (QR payload) pages are separate browser-local simulations.
-- **Restrictions and incomplete workflows:** legacy placeholder pages at
-  `/citizen/deeds`, `/citizen/ownership` and `/citizen/applications` are still routed
-  but render honest empty states (the Phase 5 sidebar links to the real workflows
-  instead); `/citizen/dashboard` shows zeroed counts while `/citizen/modes` shows real
-  ones; email verification is scaffolded (Breeze) but not enforced on any panel route.
+| Envisioned integration | Status |
+|---|---|
+| Government land registry / e-mutation API | Not integrated |
+| Porichoy or any e-KYC provider | Not integrated |
+| Bank / CIB lien systems, real e-NOC | Not integrated |
+| Redis / Redlock distributed locking | Not integrated |
+| Real OCR or ML conflict detection | Not integrated |
+| PostGIS / real cadastral GIS data | Not integrated |
+| Blockchain / external audit anchor | Not integrated |
+| Kafka or any message broker | Not integrated |
+| Payments / mutation execution | Not integrated (out of scope) |
 
-### Permission matrix (server-side policies)
+---
 
-| Resource · ability | admin | registry_officer | bank_officer | citizen |
+## 4. System Architecture
+
+### The two layers
+
+| Layer | Contents | Runs where |
+|---|---|---|
+| Laravel application | Routes → middleware (`auth`, `role:`, `throttle:`, `SetLocale`) → controllers → form requests → 8 policies → services | Server (PHP 8.2+) |
+| Application pages | Blade views: 12 demo pages, Welcome, auth pages, citizen/officer/account panels | Server-rendered HTML |
+| Demo modules | 13 ES modules in `public/js/` loaded per page via `<script type="module">` | Browser |
+| Demo state | LocalStorage under the `landtech2026.` prefix — the demo layer's "database" | Browser |
+| Application data | SQLite (users, roles, parties, plots, records, listings, audits) + private disk for documents | Server |
+| Localization | `lang/en/*` + `lang/bn/*` (11 namespaces each), session locale, `window.__t` dictionary for JS | Both |
+
+```mermaid
+flowchart LR
+    subgraph Browser["Browser"]
+        Demo["12 demo pages: Blade + ES modules"]
+        Mods["public/js: M1-M10 + store, seed, ui, saga"]
+        LS["LocalStorage landtech2026.*"]
+        Demo --> Mods --> LS
+    end
+    subgraph Laravel["Laravel 12 application"]
+        R["routes/web.php and auth.php"]
+        MW["middleware: auth, role:, throttle, SetLocale"]
+        C["Controllers: Auth, Profile, Citizen, Officer, Demo, Locale"]
+        P["8 Policies + Form Requests"]
+        M["Eloquent models and migrations"]
+        DB["SQLite database"]
+        FS["Private local disk: land documents"]
+    end
+    Demo -->|"page GET, locale POST, /lang.js"| R
+    R --> MW --> C --> P
+    C --> M --> DB
+    C --> FS
+```
+
+**The layers are deliberately separate.** Demo pages never read the database; citizen
+records never appear on demo pages. The only shared elements are the Blade layout, the
+localization system, and the Laravel server that serves both.
+
+### Roles and access control (real, server-side)
+
+| Role | Intended responsibility | UI in this build |
+|---|---|---|
+| `admin` | Highest privilege: party management, identity export, review powers | Placeholder landing page only |
+| `registry_officer` | Reviewer of links, records, documents, listings, verification requests | Placeholder landing page only |
+| `bank_officer` | Read-only due diligence with masked NIDs | Placeholder landing page only |
+| `citizen` | Self-service: records, documents, listings, ownership claims, interest | Full `/citizen/*` panel |
+
+- Public registration grants exactly the `citizen` role; role-shaped input is discarded
+  and tested (`RoleAssignmentSecurityTest`).
+- Each panel is gated by `auth` + `role:` middleware (403 on mismatch); a role-less
+  account lands on `/account/pending`.
+- Policies enforce owner scoping and **separation of duties** (reviewers can never
+  review their own submissions). Reviewer abilities exist in the policies but **no HTTP
+  route reaches them yet** — the single largest backend gap.
+- `super_admin` is not implemented — the Welcome page shows its card as "Coming Soon".
+
+### Where data lives
+
+| Store | Contents | Reset |
+|---|---|---|
+| LocalStorage (`landtech2026.*`) | Demo plots, deeds, locks, liens, KYC history, events, ledger | Dashboard → **Reset Demo Data** (browser only) |
+| SQLite (`database/database.sqlite`) | Accounts, roles, parties, plots/ownerships, records, listings, audits | `migrate:fresh` / `db:wipe` — **destructive** |
+| Private local disk | Uploaded land documents (server-generated names) | Manual file deletion |
+
+### Visualization and localization
+
+- **Leaflet 1.9** (vendored under `public/vendor/leaflet`) renders real OpenStreetMap
+  tiles for M8; **Chart.js** (vendored) draws the dashboard risk chart. No CDN is
+  required at runtime.
+- `lang/en/pages.php` is the canonical page dictionary; `lang/bn/pages.php` mirrors it
+  key-for-key (verified by `tools/lang-parity.php`). JS modules translate through the
+  same keys via an inline `window.__t` dictionary injected from `/lang.js`. `POST
+  /locale` switches languages; the `SetLocale` middleware resolves session → cookie →
+  default on every request.
+
+---
+
+## 5. The Ten Modules (M1–M10)
+
+All ten modules share **one synthetic dataset** through `public/js/store.js`
+(LocalStorage prefix `landtech2026.`), seeded by `public/js/seed.js` on the dashboard's
+first load or after **Reset Demo Data**:
+
+- **12 plots** (`plot-1 … plot-12`, displayed `P-101 … P-112`) in a fictional
+  Dhaka/Savar cluster, each with khatian number, survey type (CS/SA/RS/BS), mutation
+  status, and a polygon that is deterministic and non-overlapping by construction.
+- **15 deeds** — one per plot, except `plot-3` (2 deeds) and `plot-7` (3 deeds).
+- **Intentional scenarios:** `P-103` multiple sale · `P-107` rapid transfer chain
+  (deeds 1, 4 and 7 days old) · `P-109` active bank lien.
+
+### Module summary
+
+| Module | Main responsibility | Input | Output | Relationship to other modules | Status |
+|---|---|---|---|---|---|
+| **M1** Sync & Webhook | Keep an event stream of every significant action | Events pushed by all modules; two demo buttons | Event feed (max 200 events) | Shared log read by dashboard and M1 page | Simulated |
+| **M2** Crypto Verification | Detect altered deed copies via SHA-256 | Deed records; pasted canonical JSON | Hashes, verify/tamper verdicts, QR payload | Hashes stored on deeds; writes to M10; called by Saga step 5 | Implemented (client-side) |
+| **M3** Plot Lock | Prevent concurrent transfers on one plot | Acquire/release actions; 5-min TTL | Lock table with holder and countdown | Called by Saga step 1; sets transfer-block flag | Simulated |
+| **M4** e-KYC Gateway | Verify the buyer's identity before transfer | NID (`SIM-XXXXXX`), name, optional camera frame | VERIFIED / REJECTED with confidence, face-match, liveness | Called by Saga step 2; writes to M10; feeds M9 | Simulated |
+| **M5** Bank Lien Registry | Block sale of mortgaged plots until e-NOC | Plot, bank, amount; e-NOC action | Lien table, block reason, `eNOC-SIM-*` certificate | Called by Saga step 3; feeds M9 (+25) | Simulated |
+| **M6** AI/OCR Conflict Detection | Scan records for the four fraud patterns | All deeds and plots | Severity-ranked conflict list; saved scans | Feeds M9's rapid-transfer signal; writes to M10 | Simulated (one rule unreachable) |
+| **M7** Faraz Share Calculator | Validate inheritance shares and transfer limits | Heir count, seller, transfer share | Validity verdicts and ankra display | Standalone; reads no shared state | Implemented (client-side) |
+| **M8** GIS Spatial Mapping | Visualize plots and detect boundary overlaps | Plot polygons; real OSM tiles | Map, plot details, overlap report | Called by Saga step 4 | Real tiles, simulated query |
+| **M9** Risk Scoring | One transparent 0–100 score per plot | Deeds, liens, KYC, mutation status, latest M6 scan | Score, band, reasons on plot records | Aggregates M5/M6 signals; read by dashboard | Implemented (client-side) |
+| **M10** Audit Ledger | Tamper-evident, append-only history | Ledger entries from every module | Chain table + verify/tamper results | Written to by M2, M4, M5, M6, Saga | Implemented (client-side, browser-local) |
+
+The only component that executes modules **in order as one flow** is the Saga
+(see [§6](#6-end-to-end-workflow)); this diagram shows the cross-module calls and
+shared signals:
+
+```mermaid
+flowchart LR
+    M1["M1 Sync and Webhook"] -. "event log" .- SAGA
+    M3["M3 Plot Lock"] --> SAGA
+    M4["M4 e-KYC"] --> SAGA
+    M5["M5 Bank Lien"] --> SAGA
+    M8["M8 GIS Spatial"] --> SAGA
+    SAGA["Saga orchestrator"] --> M2["M2 Crypto Hash"]
+    SAGA --> M10["M10 Audit Ledger"]
+    M2 --> M10
+    M4 --> M10
+    M5 --> M10
+    M6["M6 OCR Conflicts"] --> M9["M9 Risk Scoring"]
+    M5 --> M9
+```
+
+### M1 — Sync & Webhook
+
+- **Problem it addresses.** Registration and mutation records can silently diverge;
+  other parts of the system need to learn about each significant event promptly.
+- **Input.** Events pushed by the other modules as you use them, plus two page actions:
+  "simulate deed executed" and "ping the channel".
+- **Processing.** `store.pushEvent(type, payload)` prepends
+  `{id, type, payload, ts, source: 'simulated-kafka'}` to the `webhooks` key and caps
+  the list at 200 entries. No broker exists.
+- **Output.** A live event feed with type badges and JSON payloads; a toast per action.
+- **Files.** `public/js/webhook.js`, `public/js/store.js`,
+  `resources/views/pages/sync-webhook.blade.php`.
+- **Relationships.** Every module writes events; the dashboard's "Recent Activity" and
+  the M1 page read them. The `subscribe`/`emit`/`TOPICS` wrapper in `webhook.js` is
+  currently **unused** — pages call `store.pushEvent` directly.
+- **Status.** Simulated event feed.
+- **Example.** Click *Simulate deed executed* → a `DEED_EXECUTED_EVENT` with the chosen
+  plot appears at the top of the feed, and that plot's mutation badge turns amber on
+  the GIS page.
+
+### M2 — Crypto Verification
+
+- **Problem it addresses.** Forged or altered deed copies are hard to tell apart from
+  originals by eye; a content hash can prove two copies differ.
+- **Input.** "Hash all deeds", a deed selector, the editable canonical JSON of the deed,
+  "Verify content hash", "Simulate forgery".
+- **Processing.** Real **Web Crypto SHA-256** over the canonical JSON of `{deedNo,
+  plotId, seller, sellerNid, buyer, buyerNid, registeredAt, registryOffice}`. Verify
+  re-hashes the pasted text and compares. The QR payload is
+  `LT26|<deedNo>|<hash-16>|<ts>|<sha256(hash+ts)-16>` — a simulation of a dynamic,
+  time-limited code.
+- **Output.** Per-deed `HASHED` badges, success/tamper panels, ledger rows
+  `DEED_VERIFIED_OK` / `DEED_TAMPER_DETECTED`, QR payload text.
+- **Files.** `public/js/crypto.js`,
+  `resources/views/pages/crypto-verify.blade.php`.
+- **Relationships.** Hashes are stored back on deed records; results go to M10; the
+  Saga (step 5) generates the missing hash during a transfer.
+- **Status.** Real cryptography; the "registry" side is simulated. A matching hash
+  proves two copies are identical — **it cannot prove a document is genuine**.
+- **Example.** Hash all deeds → verify a deed (succeeds) → *Simulate forgery* replaces
+  the JSON key `"buyer"` with `"buyer (FORGED)"` → verification fails and the ledger
+  records the tamper.
+
+### M3 — Plot Lock
+
+- **Problem it addresses.** Two sale processes on the same plot at once is exactly the
+  race that enables double-selling; one must be refused early.
+- **Input.** Per-plot "Acquire" / "Release" buttons.
+- **Processing.** An in-browser object keyed by plot id with a **5-minute TTL**
+  (`TTL_MS`), stored under `locks`. Keys follow the naming pattern
+  `LOCK:LAND:<District>:<Upazila>:<Mouza>:<Khatian>:<Plot>` (seeded per plot as
+  `redlockKey`). Acquisition fails while a live lock exists; release requires the same
+  holder token; expired locks are purged on read.
+- **Output.** Lock table with holder, expiry and a live countdown (re-rendered every
+  5 s); `PLOT_LOCKED` / `PLOT_UNLOCKED` events.
+- **Files.** `public/js/locks.js`, `resources/views/pages/plot-lock.blade.php`.
+- **Relationships.** Saga step 1 acquires and releases the same lock; the pending-
+  mutation flag this module reads is set by the Saga's final step.
+- **Status.** Simulated — there is **no Redis**, and two browsers have independent
+  LocalStorage copies, so the lock serializes activity only within one browser profile.
+- **Example.** Acquire `P-109` as `officer-demo` → the row turns red with expiry in
+  ~5 minutes; a second acquire is refused with the holder named.
+
+### M4 — e-KYC Gateway
+
+- **Problem it addresses.** An impersonator selling a plot must be stopped before the
+  transfer, ideally with both document and biometric signals.
+- **Input.** NID (format `SIM-XXXXXX`), name, and an optional **real camera** session
+  (Start / Capture / Stop).
+- **Processing.** `verifyKyc` validates the format against `/^SIM-\d{6}$/` (else
+  `FAILED_FORMAT`), draws a confidence in `[0.75, 0.99)`, sets `faceMatch =
+  confidence > 0.8`, and a liveness flag with a ~90% pass rate. Status is `VERIFIED`
+  only when both pass; history is capped at 100 entries. Camera frames are captured
+  locally to a canvas and never uploaded.
+- **Output.** Result card (status, confidence, face-match, liveness), last-10 history
+  table, `KYC_VERIFIED` / `KYC_REJECTED` ledger rows, a `KYC_RESULT` event.
+- **Files.** `public/js/kyc.js`, `resources/views/pages/ekyc-biometric.blade.php`.
+- **Relationships.** Called by Saga step 2; M9 treats *no verified KYC for any deed
+  buyer* as a +10 risk signal.
+- **Status.** Simulated KYC (a format rule plus randomness — no Porichoy or any API).
+- **Example.** `SIM-123456` + any name usually verifies at 80–99%; a rejection just
+  means "retry". `1234567890` fails format validation with 0% confidence.
+
+### M5 — Bank Lien Registry
+
+- **Problem it addresses.** Selling land that collateralizes an active bank loan is a
+  classic dispute; registration should be blocked until the bank releases it.
+- **Input.** Plot selector, bank name, amount, "Register lien"; per-row "Issue e-NOC".
+- **Processing.** `addLien` appends an `ACTIVE` lien (`source: 'simulated CIB'`) and
+  ledgers `LIEN_REGISTERED`. `issueENOC` flips it to `RELEASED` with a certificate id
+  `eNOC-SIM-XXXXXX` and ledgers `LIEN_RELEASED`. `registrationBlockedByLien(plotId)`
+  returns a human-readable block reason while any active lien exists.
+- **Output.** Lien table (plot, bank, amount, status, e-NOC id, action); ledger rows;
+  toasts.
+- **Files.** `public/js/liens.js`, `resources/views/pages/bank-lien.blade.php`.
+- **Relationships.** Called by Saga step 3; M9 adds +25 for an active lien.
+- **Status.** Simulated — no bank, CIB or CBS system is contacted; the seed creates one
+  active lien on `P-109` (`SIM-Bank Ltd (fictional)`, ৳ 2,000,000–8,000,000).
+- **Example.** The seeded `P-109` lien shows `ACTIVE` and aborts the Saga; click
+  *Issue e-NOC* → `RELEASED` with certificate `eNOC-SIM-…`, and the Saga now passes
+  step 3.
+
+### M6 — AI/OCR Conflict Detection
+
+- **Problem it addresses.** The four fraud patterns (multiple sale, rapid transfer,
+  registration-vs-mutation mismatch, survey conflict) are visible in the records but
+  easy to miss manually.
+- **Input.** An auto-running scan, a "Run scan" button, and a deed selector for the
+  simulated extraction panel.
+- **Processing.** `detectConflicts()` groups all deeds per plot, sorts by registration
+  date, and applies four rules:
+  1. **MULTIPLE_SALE (CRITICAL)** — more than one deed for one plot.
+  2. **RAPID_TRANSFER (HIGH)** — two successive deeds registered under 30 days apart.
+  3. **MUTATION_MISMATCH (MEDIUM)** — plot is `PENDING_MUTATION` while deeds exist.
+  4. **SURVEY_CONFLICT (LOW)** — plot survey differs from the "OCR-read" `BS` while a
+     deed carries an `OCR_BS` flag. **This rule is unreachable**: nothing sets the
+     flag, so it never fires.
+  Each run is stored (last 50) and appends `CONFLICTS_DETECTED` to the ledger when
+  conflicts exist; an `OCR_SCAN_COMPLETED` event is emitted.
+- **Output.** Conflict list with severity badges, plot number, detail text and
+  "Inspect" deep-links into the risk report.
+- **Files.** `public/js/ocr.js`, `resources/views/pages/ai-ocr-conflict.blade.php`.
+- **Relationships.** Its latest scan's rapid-transfer findings feed M9 (+15); its saved
+  conflicts are read by the dashboard and risk pages.
+- **Status.** Simulated rule engine — **no OCR engine and no ML model exist**; the
+  "extraction" copies known fields and returns a confidence of 0.82–0.97 for show.
+- **Example.** On seeded data a scan reports the multiple sale on `P-103`, the multiple
+  sale plus two rapid transfers on `P-107`, and one mutation mismatch per plot whose
+  randomly seeded status is `PENDING_MUTATION`.
+
+### M7 — Faraz Share Calculator
+
+- **Problem it addresses.** In family-land disputes, sellers sometimes transfer more
+  than their legal inheritance share; the arithmetic is easy to get wrong.
+- **Input.** Eligible-heir count (1–8) with "Equal split", a seller selector, a
+  transfer share (default 0.2), "Validate transfer".
+- **Processing.** `validateShares` requires the fractions to sum to 1.0 within `1e-6`;
+  `validateTransfer` rejects any transfer exceeding the seller's legal share
+  (tolerance `1e-9`); `equalSplit` divides with a rounding remainder on the last share;
+  `fractionToAnkra` renders the traditional 16-ankra notation.
+- **Output.** Legal-share table (fraction, percent, ankra, validity), transfer verdict
+  alert, split confirmation.
+- **Files.** `public/js/faraz.js`,
+  `resources/views/pages/faraz-calculator.blade.php`.
+- **Relationships.** Standalone: pure client-side math, nothing persisted, no events.
+- **Status.** Implemented arithmetic; it is **not** a legal inheritance engine — real
+  faraz rules depend on the school of law, kinship and circumstances.
+- **Example.** Default split 0.4 / 0.35 / 0.25 validates; transferring 0.2 from the
+  0.4 share is accepted ("0.2 ≤ 0.4"); 0.5 is rejected.
+
+### M8 — GIS Spatial Mapping
+
+- **Problem it addresses.** A fabricated plot sketch can overlap an existing khatian;
+  the overlap is invisible on paper but obvious spatially.
+- **Input.** A map that renders immediately; click a polygon for details; the overlap
+  list focuses a polygon.
+- **Processing.** Real **Leaflet 1.9** with live **OpenStreetMap** tiles. Overlap
+  detection is a **ray-casting point-in-polygon** heuristic: two polygons count as
+  overlapping if any vertex of one lies inside the other — a stand-in for PostGIS
+  `ST_Intersects`, not true polygon intersection.
+- **Output.** Interactive map (colour by mutation status), plot details (hierarchy,
+  khatian, survey, owner, area, redlock key), overlap count and list.
+- **Files.** `public/js/map.js`, `resources/views/pages/gis-map.blade.php`,
+  `public/vendor/leaflet/*`.
+- **Relationships.** Called by Saga step 4; reads the shared `plots` key.
+- **Status.** Real tiles, simulated query. The seed geometry **never overlaps by
+  construction**, so the overlap report is legitimately 0 until data is edited.
+- **Example.** Zoom the 12 polygons around Savar; click one to see its details; the
+  Overlap Report shows 0 — the honest default state.
+
+### M9 — Risk Scoring
+
+- **Problem it addresses.** A buyer needs one actionable number, with named reasons,
+  instead of cross-checking four separate records.
+- **Input.** Live shared data: plots, deeds, liens, KYC history, the latest M6 scan.
+- **Processing.** Rule-based additive score, capped at 100: **+40** more than one deed
+  (multiple sale) · **+25** active lien · **+20** `PENDING_MUTATION` · **+15** rapid
+  transfer flagged by the latest M6 scan · **+10** no verified KYC for any deed buyer ·
+  **+10** if `plot.survey === 'NONE'` (an edge case the seeded data never produces).
+  Bands: **≥ 60 High (red)** · **≥ 30 Caution (amber)** · **< 30 Low (green)**.
+- **Output.** Score table (score, bar, band) persisted onto each plot; a public report
+  with owner, mutation status, deed count and reasons.
+- **Files.** `public/js/risk.js`, `resources/views/pages/risk-scoring.blade.php`.
+- **Relationships.** Aggregates M5 (lien) and M6 (rapid transfer); the dashboard chart
+  displays `scoreAll()`.
+- **Status.** Implemented rule engine — fixed, transparent weights; not a trained or
+  audited model; an indicator, never proof.
+- **Example.** After a fraud scan, `P-107` normally scores ~65 (High): 40 (three deeds)
+  + 15 (rapid transfer) + 10 (no KYC) — rising to ~85 if its randomly seeded mutation
+  status is `PENDING_MUTATION`. `P-109` scores ~35 (Caution) from its lien + missing KYC.
+
+### M10 — Audit Ledger
+
+- **Problem it addresses.** After a sale, an ordered trail that silently edits cannot
+  survive is essential for disputes; the prototype shows what that looks like.
+- **Input.** Automatic appends from every module, plus "Verify chain", "Simulate tamper
+  attack" and "Append a manual note".
+- **Processing.** `appendLedger(action, data)` computes
+  `blockHash = SHA-256(prevHash + JSON({action, data, seq, ts}))` from a `GENESIS`
+  seed — a real hash chain over browser storage. `verifyLedgerChain` recomputes every
+  hash and back-link, reporting the first broken sequence number. `tamperLedger`
+  mutates a middle block **without** recomputing its hash — exactly the attack the
+  verifier must catch.
+- **Output.** Ledger table (seq, action, data, truncated hashes, timestamp); chain
+  status badge (valid / broken at block N); toasts.
+- **Files.** `public/js/crypto.js` (ledger half), `public/js/store.js` (the `ledger`
+  key), `resources/views/pages/audit-ledger.blade.php`.
+- **Relationships.** Every other module writes here — KYC results, liens, conflict
+  scans, deed verifications, Saga commits/aborts, manual notes.
+- **Status.** Implemented hash chain, **not a production ledger**: it lives in one
+  browser, can be cleared entirely, and a full rewrite of every block would look valid.
+- **Example.** Verify → "valid chain". Simulate tamper → verify again → the badge names
+  the exact tampered sequence number.
+
+---
+
+## 6. End-to-End Workflow
+
+### 6.1 The conceptual design — how the checks fit a land sale
+
+Imagine a buyer and seller starting a transfer for one plot. In the proposed
+production design, each check below would run at a defined point:
+
+| # | What happens | Module | Condition or output that matters | Next step | In the demo? |
+|---|---|---|---|---|---|
+| 1 | A registration event is emitted so downstream systems stay in sync | M1 | The event is recorded and visible | Hash the deed documents | Yes — event feed page (simulated broker) |
+| 2 | The deed is hashed; copies are compared | M2 | Hashes match — or don't | Mismatch stops the sale; match continues | Yes — but manually on `/crypto-verify`, and as *hash generation* inside the Saga |
+| 3 | The plot is locked for the sale window | M3 | Lock acquired, or current holder reported | If already locked, the sale cannot start | Yes — Saga step 1 |
+| 4 | The buyer's identity is verified | M4 | VERIFIED vs REJECTED | Rejected identity aborts the transfer | Yes — Saga step 2 |
+| 5 | Encumbrances are checked | M5 | Active lien ⇒ block reason | Blocked until an e-NOC releases the lien | Yes — Saga step 3 |
+| 6 | Records are scanned for inconsistencies | M6 | Conflict list by severity | CRITICAL findings trigger manual review | Partly — dedicated page + dashboard only, **not in the Saga** |
+| 7 | The seller's legal share is validated | M7 | Transfer ≤ legal share; shares sum to 1.0 | Over-transfer is rejected | Yes — standalone page only |
+| 8 | Plots are checked for boundary overlaps | M8 | Overlap report | Overlap aborts the transfer | Yes — Saga step 4 |
+| 9 | A composite risk score is published | M9 | Score, band and reasons | High score triggers extra scrutiny | Yes — standalone page only |
+| 10 | Every action is appended to a tamper-evident ledger | M10 | Chain intact or broken | The trail supports later disputes | Yes — every module appends |
+
+**The ten modules do not run as one connected pipeline in this prototype.** Only the
+Saga executes several modules as an ordered transaction (steps 1, 2, 3, 4 and the
+combined step 5, which uses M2, M3's flag, M1 and M10). M6, M7 and M9 are separate
+analysis pages that read the same shared dataset — the design above places them in the
+conceptual flow, but nothing invokes them automatically during a transfer.
+
+### 6.2 What actually executes today — the Saga
+
+`public/js/saga.js` (page `/saga`) is the one place where a land transfer runs as an
+ordered distributed-transaction **simulation**, with compensation on failure. Every
+completed step registers a compensating action; a failure triggers the compensations
+of the completed steps.
+
+| # | Step | Module called | Fails when | Compensation triggered if this step fails |
 |---|---|---|---|---|
-| Party · viewAny (list) | Yes\* | Yes\* | Yes\* | No |
-| Party · view one record | Yes\* | Yes\* | Yes\* | Yes\* (own party, verified link only) |
-| Party · create / update | Yes\* | Yes\* | No | No |
-| Party · delete | Yes\* | No | No | No |
-| Party · export | Yes\* | No | No | No |
-| Identity · view masked (•••• 1234) | Yes\* | Yes\* | Yes\* | No |
-| Identity · view full / search by NID | Yes\* | Yes\* | No | No |
-| Identity · bulk export | Yes\* | No | No | No |
-| Ownership link · create | No | No | No | Yes (own) |
-| Ownership link · view | Yes\* | Yes\* | No | Owner (own claims) |
-| Ownership link · update / withdraw | No | No | No | Owner (pending claims only) |
-| Ownership link · approve / reject | Yes\* (never own) | Yes\* (never own) | No | No |
-| Land record · create / submit / request correction | No | No | No | Yes (own) |
-| Land record · view | Yes\* | Yes\* | No | Owner |
-| Land record · update | No | No | No | Owner (while editable) |
-| Land record · delete | No | No | No | Owner (draft only) |
-| Land record · review / verify / reject | Yes\* (never own) | Yes\* (never own) | No | No |
-| Document · upload | No | No | No | Yes |
-| Document · view / download | Yes\* (review) | Yes\* (review) | No | Owner |
-| Document · update / delete | No | No | No | Owner (while pending) |
-| Document · review (approve/reject/replacement) | Yes\* (never own) | Yes\* (never own) | No | No |
-| Listing · create / submit / withdraw | No | No | No | Yes (own) |
-| Listing · view | Yes\* | Yes\* | No | Owner, or any authenticated user for published (route group is citizen-only) |
-| Listing · update / delete | No | No | No | Owner (draft/withdrawn only) |
-| Listing · publish / set verification / mark sold | Yes\* (never own) | Yes\* (never own) | No | No |
-| Verification request · create / view / supply info / re-run checks | No | No | No | Yes (own; info only when requested) |
-| Verification request · review / record checks | Yes\* (never own) | Yes\* (never own) | No | No |
-| Verification request · delete | No | No | No | No (retained by design) |
-| Buyer interest · create / withdraw | No | No | No | Yes |
-| Buyer interest · view | Yes\* | Yes\* | No | Buyer or listing owner |
-| Buyer interest · respond (as listing owner) | No | No | No | Yes |
-| Buyer interest · delete | No | No | No | No (retained by design) |
+| 1 | Plot lock (5-min TTL) | `locks.acquireLock` | Plot already locked | None (nothing completed yet) |
+| 2 | Identity verification | `kyc.verifyKyc` | Malformed NID or REJECTED | Release lock (step 1) |
+| 3 | Bank lien check | `liens.registrationBlockedByLien` | Active lien on the plot | Release lock + record KYC rejection note |
+| 4 | Boundary validation | `map.findOverlaps` | Plot is part of an overlap pair | Release lock + record KYC rejection note |
+| 5 | Hash + mutation notification | `crypto.computeDeedHash`, `locks.setPendingMutationFlag`, `store.saveMutations`, `store.pushEvent`, `crypto.appendLedger` | Injected failure (or unexpected error) | Release lock + record KYC rejection note |
 
-> **UI note.** Blade `@can` checks (e.g. on land-record, listing, document and
-> verification detail pages) only hide buttons; every action is re-authorized in the
-> controller, so calling the route directly still yields 403 when the policy denies it.
-> Conversely, a policy **Yes\*** ability cannot be invoked at all until a route and UI
-> are added — it is defined and testable, not exposed.
+Numbered execution:
 
-### Route surface (what each role can actually open)
+1. Choose a plot, one of its deeds, a buyer NID (default `SIM-123456`) and a name;
+   optionally choose a step to inject a failure into.
+2. **Step 1** acquires the plot lock (fails if you already locked it on `/plot-lock`).
+3. **Step 2** runs the simulated KYC; rejection or bad format aborts here.
+4. **Step 3** consults the lien registry; the seeded lien on `P-109` aborts here until
+   an e-NOC is issued on `/bank-lien`.
+5. **Step 4** runs the overlap check; overlapping polygons abort here.
+6. **Step 5** computes the deed's hash if missing, sets the plot to
+   `PENDING_MUTATION`, appends a mutation record, emits `DEED_EXECUTED_EVENT`, writes
+   `SAGA_COMMITTED` to the ledger, and returns `COMMITTED`.
+7. On failure the run stops at the failed step, returns `ABORTED` with `failedAt`, and
+   the compensation loop walks the completed steps: the lock is released, and if KYC
+   had passed, a rejection note is recorded. `SAGA_ABORTED` is then written to the
+   ledger and emitted as an event.
 
-| Route | Gate | admin | registry_officer | bank_officer | citizen | guest |
-|---|---|---|---|---|---|---|
-| `/`, `/login`, `/register`, public M1–M10 pages | none | OK | OK | OK | OK | OK |
-| `/profile` (and citizen profile/security pages) | `auth` (+ `role:citizen` for `/citizen/*`) | OK | OK | OK | OK | → login |
-| `/admin/dashboard` | `auth` + `role:admin` | OK | 403 | 403 | 403 | → login |
-| `/registry/dashboard` | `auth` + `role:registry_officer` | 403 | OK | 403 | 403 | → login |
-| `/bank/dashboard` | `auth` + `role:bank_officer` | 403 | 403 | OK | 403 | → login |
-| `/citizen/*` (all workflows) | `auth` + `role:citizen` | 403 | 403 | 403 | OK | → login |
-| `/account/pending` | `auth` | OK | OK | OK | OK | → login |
+```mermaid
+flowchart TD
+    A["Start: choose plot, deed, buyer NID (optional failure injection)"] --> B["1. Lock — simulated Redlock, 5-min TTL"]
+    B --> C["2. e-KYC — simulated identity check"]
+    C --> D["3. Bank lien check — simulated CIB"]
+    D --> E["4. Boundary check — simulated PostGIS"]
+    E --> F["5. Hash + pending-mutation flag + ledger + event"]
+    F --> OK["COMMITTED"]
+    B -->|fails| ABORT
+    C -->|fails| ABORT
+    D -->|fails| ABORT
+    E -->|fails| ABORT
+    F -->|fails| ABORT
+    ABORT["ABORTED — release lock; record KYC rejection if reached; SAGA_ABORTED ledger row + event"]
+```
 
-(`/account/pending` is the post-login landing target for an authenticated account that
-holds no recognized role.)
+**Two accuracy notes about the implementation:**
 
-Demo entry: `/demo/panel/{role}` is always registered but returns **404** unless Demo
-Mode is active — which requires both the `landtech.demo_mode` config flag and a
-`local`/`testing` environment (default `LANDTECH_DEMO_MODE=false`). It logs the browser
-into a pre-seeded development demo account through the normal authentication stack; it
-grants no role and bypasses no authorization (`DemoPanelController`).
-
-### Feature summary by role
-
-| Role | Implemented and reachable | Defined in policies, no route/UI yet (Unverified at HTTP level) | Not implemented |
-|---|---|---|---|
-| `admin` | Login, role landing, placeholder dashboard, profile | Party CRUD/export; masked/full NID, NID search, identity export; reviewer abilities on all workflows | Admin/user management UI, audit viewer, review screens |
-| `registry_officer` | Login, role landing, placeholder dashboard, profile | Party view/create/update; masked/full NID, NID search; reviewer abilities on all workflows | Review queues/UI |
-| `bank_officer` | Login, role landing, placeholder dashboard, profile | Party view; masked NID view | Lien/CIB workflow UI |
-| `citizen` | Full Phase 5 workflows (land records, documents, listings, ownership link, buyer search, verification requests, interest requests), profile/security | — (owner abilities are routed; reviewer-dependent steps are blocked by design) | Listing publication, record verification and link approval (need the missing reviewer UI); payments/transfers/mutation |
-
-### Implemented vs. simulated vs. planned
-
-- **Implemented (backend, database, automated tests):** authentication and four-role
-  middleware; registration that grants only `citizen` and is rate-limited to 5
-  requests/minute per IP (`throttle:5,1`); the citizen Phase 5 workflows
-  listed above; private file storage; rule-based internal verification checks; demo
-  accounts created only in `local`/`testing`; Demo Mode entry (config-gated, default
-  off).
-- **Simulated / demo-only:** the entire public M1–M10 layer (browser-side, LocalStorage,
-  synthetic data) and the Demo Mode panel shortcuts; the M2 QR payload is generated in
-  the browser, not by the backend.
-- **Planned / absent:** officer and admin operational dashboards; all reviewer
-  endpoints and UI; party-management UI; audit-log viewer; notifications table; backend
-  QR; any government, e-KYC, bank/CIB, GIS or blockchain integration; `super_admin`.
+- The `revertMutation` compensation is defined in the code but **cannot execute**:
+  step 5 completing means the Saga commits, so the "revert the pending-mutation flag"
+  path is unreachable dead code. All real aborts release the lock (and record the KYC
+  note).
+- The `/saga` page compares the engine status against the string `COMPLETED`, while
+  the engine returns `COMMITTED`. A successful run therefore shows the correct
+  `COMMITTED` text in **red** styling with the "aborted" toast wording. The step list,
+  compensations and JSON log are correct — a cosmetic page bug, listed in
+  [§10](#10-security-limitations-and-integration-status).
 
 ---
 
-## 3. Technology Stack
+## 7. Practical Demo Scenarios
 
-The repository contains **two layers** (see the note at the top): the database-backed
-Laravel application, and the public M1–M10 demo pages. Rows marked *(demo layer)* power
-only the public pages; the rest describes the Laravel application.
+Every scenario below uses only controls that exist in the UI. Start the server first
+(see [§9](#9-installation-and-execution)); demo pages need no account.
 
-| Layer | Technology |
+| # | Scenario | What you do | What you see | Modules |
+|---|---|---|---|---|
+| 1 | **Multiple-sale detection** | Open `/dashboard` → run the fraud scan (or open `/ai-ocr-conflict`) | `P-103` flagged CRITICAL (two deeds); `P-107` CRITICAL plus two HIGH rapid transfers | M6, M9 |
+| 2 | **Rapid resale chain** | Inspect the `P-107` findings and follow *Inspect* → `/risk-scoring#plot-7` | Reasons list shows multiple sale + rapid transfer; score ≈ 65 (High) | M6, M9 |
+| 3 | **Active bank lien + failed transfer** | `/bank-lien`: show the ACTIVE lien on `P-109` → `/saga`: run `P-109` | Saga aborts at step 3 with the lien message; compensation releases the step-1 lock; `SAGA_ABORTED` in the ledger. Issue the e-NOC, re-run → `COMMITTED` | M5, Saga, M10 |
+| 4 | **Document tamper detection** | `/crypto-verify`: *Hash all deeds* → verify (succeeds) → *Simulate forgery* → verify again | Tamper panel with both hashes; `DEED_TAMPER_DETECTED` ledger row | M2, M10 |
+| 5 | **Suspicious risk score** | `/risk-scoring` → open `#plot-7` | Score ≈ 65 (High) with named reasons; compare with a clean plot (< 30 Low) | M9 |
+| 6 | **Mutation mismatch** | Run a scan, read the MEDIUM findings | One mismatch per plot whose randomly seeded status is `PENDING_MUTATION` | M6 |
+| 7 | **Concurrent-transaction conflict** | `/plot-lock`: acquire `P-109`, attempt a second acquire; or run a Saga on a locked plot | Refusal message naming the holder; Saga aborts at step 1 | M3, Saga |
+| 8 | **Tamper-evident audit trail** | `/audit-ledger`: *Verify chain* → *Append note* → *Simulate tamper* → verify again | "Valid chain", then "broken at block N" | M10 |
+| 9 | **Identity verification flow** | `/ekyc-biometric`: run KYC with `SIM-123456` (retry once if rejected), optionally with the real camera | VERIFIED with confidence/face-match/liveness; history table grows | M4 |
+
+Two honest notes for presenters:
+
+- The **overlap report (M8) shows 0 by construction** — the seeded polygons never
+  overlap. This demonstrates that the check runs and returns a genuine result; it
+  would only report conflicts if polygon data were deliberately overlapped.
+- The **exact conflict count varies** between runs because mutation statuses are
+  randomly seeded; the `P-103`, `P-107` and `P-109` scenarios are deterministic.
+
+**Suggested 10-minute walkthrough order:** Welcome page (honest scope) → `/dashboard`
+scan → risk report for `P-107` → `/crypto-verify` tamper → `/bank-lien` + failed Saga
+on `P-109` → e-NOC → committed Saga → `/audit-ledger` tamper demo. Finish by
+registering a citizen account (`/register`) to show the real Laravel workflows: land
+record submission (*pending verification*), document upload to private storage, and
+the honest placeholder dashboards for the reviewer roles.
+
+---
+
+## 8. Technology Stack and Project Structure
+
+### Why these technologies
+
+| Technology | Used for | Why this choice |
+|---|---|---|
+| PHP ≥ 8.2 + Laravel 12 | Backend: routing, auth, policies, ORM, migrations | Batteries-included, testable structure for the real application layer |
+| Laravel Breeze 2.4 (Blade) | Authentication scaffolding | Minimal, transparent auth code that the tests cover directly |
+| SQLite file | Application database | Zero setup for a prototype; trivially replaceable with a server DB |
+| Blade + Tailwind CSS 4 + Alpine.js | Server-rendered pages and UI chrome | No SPA build complexity; fast to review |
+| Vanilla ES modules (`public/js/`) | All ten demo modules + Saga | Zero framework overhead, fully inspectable code; each file is one module |
+| Web Crypto API | M2/M10 hashing | Real SHA-256 in the browser without any library |
+| Leaflet 1.9 (vendored) | M8 map, real OSM tiles | No CDN dependency at runtime |
+| Chart.js (vendored) | Dashboard risk chart | Lightweight, no build-time coupling |
+| Vite 7 | Asset bundling (`npm run build`) | Laravel-default toolchain |
+| PHPUnit 11 | Backend test suite (242 tests) | Laravel-default, runs against in-memory SQLite |
+| Playwright (`smoke-test.cjs`) | 12-page browser smoke check | Catches console errors and failed requests per page |
+| Four PHP tools in `tools/` | Localization coverage/parity audits | Keep EN/BN dictionaries honest and complete |
+| Laravel Pint | Code formatting | Ships with Laravel; no project config needed |
+
+### Directory guide (the paths that matter)
+
+```text
+landtech-app/
+├── app/
+│   ├── Http/
+│   │   ├── Controllers/
+│   │   │   ├── Auth/                  # Breeze authentication controllers
+│   │   │   ├── Citizen/               # 9 controllers: land, documents, listings,
+│   │   │   │                          #   links, search, verification, interest
+│   │   │   ├── DemoPanelController.php# gated one-click demo login
+│   │   │   ├── LocaleController.php   # locale switch + /lang.js payload
+│   │   │   ├── OfficerDashboardController.php  # admin/registry/bank/pending
+│   │   │   └── ProfileController.php  # Breeze profile (reused by citizen panel)
+│   │   ├── Middleware/                # EnsureRole (the role: gate), SetLocale
+│   │   └── Requests/                  # form-request validation
+│   ├── Models/                        # 17 Eloquent models
+│   ├── Policies/                      # 8 policies, one per protected resource
+│   ├── Services/
+│   │   ├── IdentityAccessService.php  # the only sanctioned NID access path (audited)
+│   │   ├── LandDocumentService.php    # private storage + traversal-safe reads
+│   │   └── LandVerificationService.php# rule-based internal checks + risk indicator
+│   └── Support/                       # AuditChain, LandingPage, DemoMode, Identity/*
+├── config/                            # landtech.php (demo mode), privacy.php (NID key)
+├── database/
+│   ├── factories/  (10)  migrations/ (21)  seeders/ (idempotent)
+│   └── database.sqlite                # created during setup
+├── lang/
+│   ├── en/  bn/                       # 11 namespaces per locale (pages.php = canonical)
+│   └── en.json  bn.json
+├── public/
+│   ├── js/                            # THE DEMO LAYER — 13 ES modules:
+│   │   ├── store.js  seed.js  ui.js   #   mock store, synthetic dataset, toasts/dialogs
+│   │   ├── saga.js                    #   orchestration with compensation
+│   │   ├── webhook.js crypto.js locks.js kyc.js liens.js
+│   │   └── ocr.js faraz.js map.js risk.js   # M1-M10 engines
+│   └── vendor/                        # leaflet + chart.js (vendored, no CDN at runtime)
+├── resources/
+│   ├── css/app.css  js/app.js bootstrap.js chrome.js
+│   └── views/
+│       ├── layouts/app.blade.php      # demo-page layout + disclaimer banner
+│       ├── pages/                     # the 12 demo pages
+│       ├── citizen/ officer/ account/ auth/   # panels, placeholders, Breeze views
+│       └── partials/ components/
+├── routes/
+│   ├── web.php                        # demo pages, welcome, locale, panels, citizen
+│   └── auth.php                       # Breeze auth routes (register throttle:5,1)
+├── tests/                             # 26 files (25 test classes + TestCase)
+├── tools/                             # lang-coverage, lang-parity, lang-audit, i18n-coverage
+├── smoke-test.cjs                     # Playwright 12-page page-load check
+├── phpunit.xml                        # in-memory SQLite, array session/cache
+└── vite.config.js
+```
+
+**Models (17):** `User`, `Role`, `Party`, `PartyIdentity`, `PartyUserLink`,
+`LandRecord`, `LandDocument`, `SaleListing`, `VerificationRequest`,
+`VerificationCheck`, `BuyerInterestRequest`, `SensitiveReadAudit`, `Plot`,
+`PlotOwnership`, `District`, `Upazila`, `Mouza`.
+
+**Read these first:** `routes/web.php` → `public/js/store.js` → `public/js/seed.js` →
+`public/js/saga.js` → `resources/views/pages/dashboard.blade.php` →
+`app/Http/Controllers/Citizen/` → `app/Policies/` → `config/privacy.php`.
+
+---
+
+## 9. Installation and Execution
+
+Everything below runs inside **`landtech-app/`** (the Laravel application directory).
+
+### Prerequisites
+
+| Requirement | Version / notes |
 |---|---|
-| Backend framework | **Laravel 12** (PHP ≥ 8.2) — routes, controllers, Eloquent models, migrations, validation, policies, middleware |
-| Database | **SQLite** by default (`DB_CONNECTION=sqlite`, file `database/database.sqlite`); sessions, cache and queue use the database driver by default |
-| Authentication | **Laravel Breeze 2.4** (Blade stack) |
-| Authorization | **Policies** (`app/Policies/`, explicitly registered via `Gate::policy()` in `AppServiceProvider`) + a `roles`/`role_user` schema and the custom `EnsureRole` middleware (`role:` route middleware) |
-| Identity privacy | AES encryption for stored NID values + keyed HMAC-SHA256 lookup (`NidHasher`, `NID_HMAC_KEY`), with a hash-chained `sensitive_read_audits` table |
-| File storage | Private Laravel `local` disk for land documents (no public URL; authorized download route only) |
-| Templating | **Blade** (`resources/views/` — demo pages, welcome page and Breeze auth/panel views) |
-| CSS | **Tailwind CSS 4** via `@tailwindcss/vite` |
-| Bundler | **Vite 7** via `laravel-vite-plugin` |
-| Client JS (app UI) | **Alpine.js 3** (Breeze components) |
-| Client JS *(demo layer)* | Vanilla **ES modules** (`public/js/*.js`) |
-| Persistence *(demo layer)* | **LocalStorage** (browser-side mock database — not the application database) |
-| Mapping *(demo layer)* | **Leaflet 1.9** + OpenStreetMap tiles |
-| Charts *(demo layer)* | **Chart.js 4** |
-| Hashing *(demo layer)* | Browser **Web Crypto API** (SHA-256) |
-| Camera *(demo layer)* | Browser **`getUserMedia`** (photo stays local) |
-| Localization | EN/BN lang files + session-persisted locale switch |
-| Test tooling | **PHPUnit 11** (feature suite) + **Playwright 1.64** (`smoke-test.cjs`) |
-| Code formatting | **Laravel Pint** (dev dependency) |
+| PHP | **≥ 8.2** (Laravel 12); `pdo_sqlite` enabled |
+| Composer | 2.x |
+| Node.js | **`^20.19` or `≥ 22.12`** and npm (required by Vite 7) |
+| Database | None to install — SQLite file at `database/database.sqlite` |
+| Browser | Any modern browser; Chromium-based for the smoke test |
 
----
+### Windows (PowerShell) — verified
 
-## 4. Prerequisites & Installation
+```powershell
+cd "E:\LandTech 2026\landtech-app"
 
-- **PHP ≥ 8.2** and **Composer**
-- **Node.js `^20.19` or `≥ 22.12`** and **npm** (required by Vite 7)
-- No database server is required: the default connection is a local **SQLite** file.
-
-### Windows
-
-```bat
-:: 1. Install PHP dependencies
+# 1. PHP dependencies
 composer install
 
-:: 2. Create .env and generate an app key
-copy .env.example .env
+# 2. Environment file and application key
+Copy-Item .env.example .env
 php artisan key:generate
 
-:: 3. Generate the NID lookup key and paste it into .env as NID_HMAC_KEY
+# 3. Generate the NID lookup key and paste the output into .env as NID_HMAC_KEY=
 php -r "echo base64_encode(random_bytes(32));"
 
-:: 4. Create the SQLite file (if absent), then migrate and seed
-if not exist database\database.sqlite type nul > database\database.sqlite
+# 4. Create the SQLite file, build the schema and seed
+New-Item -ItemType File -Path database\database.sqlite -Force
 php artisan migrate --seed
 
-:: 5. Install Node dependencies
+# 5. Frontend dependencies and build
 npm install
-```
-
-### Linux / macOS
-
-```bash
-# 1. Install PHP dependencies
-composer install
-
-# 2. Create .env and generate an app key
-cp .env.example .env
-php artisan key:generate
-
-# 3. Generate the NID lookup key and paste it into .env as NID_HMAC_KEY
-php -r "echo base64_encode(random_bytes(32));"
-
-# 4. Create the SQLite file (if absent), then migrate and seed
-touch database/database.sqlite
-php artisan migrate --seed
-
-# 5. Install Node dependencies
-npm install
-```
-
-Notes:
-
-- **`NID_HMAC_KEY` is required before seeding or using any identity feature.** The
-  seeder stores encrypted synthetic identity numbers, and identity operations **fail
-  closed** without the key (see `config/privacy.php`, `fail_closed`). Set it in `.env`
-  (git-ignored) — the snippet above prints a value to copy; never commit it.
-- `php artisan migrate --seed` creates the schema, the geographic reference data, the
-  four roles, and the synthetic parties/plots/ownerships. Demo accounts are created
-  **only when `APP_ENV` is `local` or `testing`** (the default in `.env.example`).
-- `composer setup` automates install, `.env` creation, `key:generate`, `migrate --force`,
-  `npm install` and `npm run build` — but it does **not** create the SQLite file, set
-  `NID_HMAC_KEY`, or run the seeder, so steps 3–4 above still apply.
-- Optional: with `LANDTECH_DEMO_MODE=true` in a `local`/`testing` environment, the
-  Welcome page offers one-click entry into the demo panels (see §5). Default is
-  `false`; the flag is inert elsewhere.
-
----
-
-## 5. Running the App
-
-### Development
-
-```bash
-# Terminal 1 — Laravel dev server (same on Windows, Linux and macOS)
-php artisan serve --host=127.0.0.1 --port=8000
-
-# Terminal 2 — Vite for frontend assets and live reload
-npm run dev
-```
-
-Alternatively, `composer dev` runs the server, a queue listener, log tailing (`pail`)
-and Vite together via `concurrently`.
-
-Open **http://127.0.0.1:8000**. Entry points:
-
-| URL | Behaviour |
-|---|---|
-| `/` | Serves the Welcome/Login landing page. Guests are **no longer redirected** to `/dashboard`. |
-| `/dashboard`, `/saga`, … (12 pages) | Public M1–M10 demo pages — reachable without an account (browser simulations, see §2). |
-| `/login`, `/register` | Breeze authentication. Public registration grants the `citizen` role and is rate-limited to 5 requests/minute per IP (`throttle:5,1`). |
-| After login | Role-aware landing: admin → `/admin/dashboard`, registry officer → `/registry/dashboard`, bank officer → `/bank/dashboard`, citizen → `/citizen/dashboard`; an account with no role → `/account/pending`. |
-
-If `LANDTECH_DEMO_MODE=true` and the app runs in `local`/`testing`, the Welcome page
-also shows one-click shortcuts that sign in the pre-seeded demo accounts (default off).
-
-### Production build
-
-```bash
 npm run build
+
+# 6. Run
+php artisan serve --host=127.0.0.1 --port=8000
 ```
 
-This compiles the CSS/JS into `public/build/`. Unlike the original prototype, the full
-application also needs a migrated database: run `php artisan migrate --force` (and
-`--seed` if you want the reference/demo data) as part of deployment.
+Linux/macOS equivalent: same steps with `cp .env.example .env` and `touch
+database/database.sqlite`.
 
----
+Then open **http://127.0.0.1:8000/** (Welcome), **/dashboard** (demo, no account
+needed), or **/register** (create a citizen account for the real workflows).
 
-## 6. Tests
+### Setup notes (verified against the repository)
 
-The repository has two automated layers: a **PHPUnit feature suite** covering the
-database-backed backend, and a **Playwright page-load smoke script** for the public demo
-pages.
+- **`NID_HMAC_KEY` is required before seeding or using identity features.** It is a
+  256-bit key independent of `APP_KEY`, used for the keyed HMAC lookup over NIDs.
+  Without it, identity operations **fail closed** (`config/privacy.php`). Keep it only
+  in the git-ignored `.env`.
+- **`php artisan migrate --seed`** creates the schema, geo data, roles, synthetic
+  parties/plots/ownerships and — **only when `APP_ENV` is `local` or `testing`** — the
+  demo accounts. Seeders are idempotent (asserted by `SeederIdempotencyTest`).
+- **`composer setup`** automates install → `.env` → `key:generate` → `migrate --force`
+  → `npm install` → `npm run build`, but it does **not** create the SQLite file, set
+  `NID_HMAC_KEY`, or run the seeder — steps 3 and the `--seed` flag still apply.
+- **Data-loss warning:** `php artisan migrate:fresh` (or `db:wipe`) erases **all**
+  database contents, including records you created. Use it only deliberately.
+- **Demo Mode (optional):** set `LANDTECH_DEMO_MODE=true` in `.env` (keeping
+  `APP_ENV=local`) to reveal one-click panel-entry shortcuts on the Welcome page. It
+  is off by default and inert outside `local`/`testing`.
 
-### PHPUnit suite (`php artisan test`)
+### Running
 
-Runs `tests/Feature` and `tests/Unit` against an in-memory SQLite database —
-`phpunit.xml` sets `APP_ENV=testing`, `DB_CONNECTION=sqlite`, `DB_DATABASE=:memory:`,
-array session/cache/mail drivers and the sync queue — so no local database is touched.
-
-**Last run on this machine: 242 passed (1048 assertions).**
-
-```bash
-php artisan test        # or: composer test
-```
-
-Coverage by area (representative files under `tests/Feature/`):
-
-| Area | Files | What is asserted |
-|---|---|---|
-| Authentication (Breeze) | `Auth/AuthenticationTest`, `Auth/RegistrationTest`, `Auth/PasswordResetTest`, `Auth/PasswordConfirmationTest`, `Auth/PasswordUpdateTest`, `Auth/EmailVerificationTest` | login/logout, registration (rate-limited 5/minute), password reset/confirmation/update and email verification flows |
-| Roles & redirects | `Auth/RoleAssignmentSecurityTest` | public registration grants only `citizen`; role-shaped input is ignored; each role lands on its own dashboard; an intended URL never overrides authorization; role-less users land on `/account/pending` |
-| Citizen panel access | `Citizen/CitizenPanelAccessTest`, `Citizen/CitizenModeTest` | 403 for wrong roles on citizen routes, owner-scoped records and notifications, mode switching grants no extra access |
-| Citizen land workflow | `Citizen/LandRecordTest` | create/submit/edit lifecycle, submitted records go to *pending verification* (never auto-verified), client-supplied statuses rejected, exact fractional shares, cross-citizen access denied |
-| Party & ownership validation | `OwnershipValidationTest` | form-request rules for fractions, disposal dates, bilingual names, organization fields and identity-number format |
-| Identity & audit | `NidStorageTest`, `IdentityAccessAuthorizationTest`, `AuditChainTest` | encryption at rest, keyed HMAC lookup (Bengali/ASCII digit convergence), masking, fail-closed behaviour, role-gated reads by purpose, hash-chained audit rows |
-| Schema & seeders | `PartySchemaTest`, `GeoSchemaTest`, `SeederIdempotencyTest` | schema constraints, idempotent re-seeding with preserved IDs, privilege-safe seeding |
-| Welcome & demo mode | `WelcomePageTest`, `DemoWalkthroughTest` | `/` serves the welcome page; Demo Mode is off by default, requires `local`/`testing`, grants no role, and each shortcut lands on its own role's dashboard |
-| Localization | `LocaleSwitchingTest`, `LocaleSwitchingEverywhereTest`, `MissingTranslationsTest` | EN/BN switching across screens and missing-translation checks |
-| Profile | `ProfileTest` | Breeze profile update/delete flows |
-| Root page | `ExampleTest` | `/` serves the welcome view and `/dashboard` still responds |
-
-> `tests/Unit/ExampleTest.php` remains a trivial scaffold test (`assertTrue(true)`);
-> everything else in the suite is project-specific.
-
-### Page-load smoke test (`smoke-test.cjs`)
-
-A Playwright script that visits all 12 pages and reports console errors, failed
-requests, page title, and whether the "FRONTEND DEMO PROTOTYPE" disclaimer badge is
-present.
-
-**Requirements:** the Laravel server must already be running on
-`http://127.0.0.1:8000`, and Playwright must be able to find a Chromium-based browser.
-The script currently hard-codes the path
-`C:\Program Files (x86)\Google\Chrome\Application\chrome.exe` — if Chrome is installed
-elsewhere (or is 64-bit), edit that path before running. OpenStreetMap tiles can make
-the run slow; allow a few minutes.
-
-```bash
-php artisan serve --host=127.0.0.1 --port=8000   # in a separate terminal
-node smoke-test.cjs
-```
-
-Last verified result on this machine: **12/12 pages clean** (no console errors, no
-failed requests, disclaimer badge present on every page).
-
----
-
-## 7. Demo Data & Example Scenarios
-
-All demo data is generated by `seed.js` and stored in LocalStorage. Use
-**Dashboard → Reset demo** (or clear browser storage) to wipe and reseed.
-
-### Synthetic dataset
-
-- **12 plots** in Dhaka / Savar across 4 synthetic mouzas, each with a khatian number,
-  survey type, mutation status, risk score, and a Leaflet polygon (deterministic
-  geometry — seeded polygons do **not** overlap, so any overlap shown is deliberate).
-- **15 deeds** with synthetic seller/buyer names, NID-like numbers, registry office
-  and registration dates. Names/NIDs are generated placeholders — they are not real
-  people.
-
-### Intentional fraud scenarios
-
-| Scenario | Where seeded | How to observe it |
-|---|---|---|
-| **Multiple sale (same plot sold twice)** | `plot-3` has 2 deeds | Dashboard "Rescan" or the M6 page flags the duplicate; the plot receives a high risk score in M9. |
-| **Rapid transfer chain** | `plot-7` has 3 deeds registered within days of each other | M6 flags the short interval between registrations; M9 raises the risk band. |
-| **Bank lien blocking registration** | `plot-9` has an active lien | The M5 page shows the active lien; the Saga's lien step will abort a transfer on this plot unless an e-NOC is released. |
-
-### Saga Orchestration — commit and failure/compensation
-
-The Saga (`public/js/saga.js`) models a transfer as 5 ordered steps:
-
-1. **Plot Lock** — simulated Redlock (`LOCK:LAND:…` key, 5-minute TTL). Compensating action: release the lock.
-2. **Identity Verification** — simulated Porichoy KYC. Compensating action: record the KYC rejection.
-3. **Bank Lien Check** — simulated CIB; aborts if the plot has an active lien. No compensating action needed (nothing was written yet).
-4. **Boundary Validation** — simulated PostGIS overlap check; aborts if the plot polygon overlaps another.
-5. **Hash Generation & Mutation Notification** — computes the deed's SHA-256, sets the `PENDING_MUTATION` flag, appends to the ledger and emits a simulated webhook event. Compensating action: revert the mutation flag.
-
-**Happy path:** all 5 steps complete → status `COMMITTED`, ledger entry
-`SAGA_COMMITTED`, pending-mutation flag set (which blocks further transfers on that
-plot until the mutation completes).
-
-**Failure path:** if any step fails (e.g. KYC rejects the buyer, or a lien is active),
-the Saga stops, records which step failed, and runs the **compensating actions in
-reverse order for every already-completed step** — e.g. if KYC fails, the lock acquired
-in step 1 is released. The status becomes `ABORTED` with `failedAt: <step>`, a ledger
-entry `SAGA_ABORTED` is appended, and a simulated webhook event is emitted.
-
-To see compensation on a specific step, use the Saga page's failure-injection control
-and choose which step to fail.
-
----
-
-## 8. Real Browser Functionality vs. Simulated Integrations
-
-### Genuinely real (browser-side)
-
-| Feature | What is real | Limits |
-|---|---|---|
-| **SHA-256 hashing** (M2) | Computed with the Web Crypto API over the deed's canonical JSON. Deterministic, cryptographically real. | See the important caveat below. |
-| **Hash-chained ledger** (M10) | Each block stores the previous block's hash and a SHA-256 of its own content, so editing any block visibly breaks the chain. | See the important caveat below. |
-| **Leaflet map** (M8) | Real map tiles fetched from OpenStreetMap; polygons drawn from real coordinates. | Data itself is synthetic. |
-| **Chart.js charts** (dashboard) | Real chart rendering from real in-memory data. | Data is synthetic. |
-| **Camera capture** (M4) | Real `getUserMedia` preview and canvas capture. | The photo never leaves the browser; nothing is uploaded. |
-| **Faraz math** (M7) | Real arithmetic with the Σ=1.0 and transfer-limit constraints. | Input data is user-entered/synthetic. |
-| **LocalStorage persistence** | Real browser storage — state survives reloads. | Per-browser, per-origin only; not shared between users or machines. |
-
-> **Important caveat on M2 and M10.** Browser-side hashing and this hash-chained ledger
-> **do not independently establish official deed authenticity** and **do not provide
-> tamper-proof centralized storage**. SHA-256 proves only that two copies of a document
-> match — it cannot prove a document came from a real registry. The chain lives in a
-> user's LocalStorage: it can be cleared, and a full rewrite of all blocks (including
-> recomputing every hash) would leave it looking valid. A production system would need
-> server-side/centralized append-only storage, key management, and third-party trust
-> anchors.
-
-### Simulated (labelled in the UI, no real integration)
-
-Every one of these is shown with a **"Simulated"** badge in the page UI, and every page
-carries a persistent banner: *"FRONTEND DEMO PROTOTYPE — All government registries,
-Porichoy e-KYC, bank/CIB systems, Redis locks, AI/OCR and blockchain features are
-browser simulations with synthetic data. No real integration exists."*
-
-| Feature | What the simulation actually does |
+| Command | Purpose |
 |---|---|
-| **Government e-KYC** (Porichoy API) | A rule-based name/NID lookup against synthetic KYC records in LocalStorage. No network call is made to Porichoy or any government service. |
-| **Bank lien checks / CIB / e-NOC** | Local records in LocalStorage; "e-NOC issuance" just flips a lien's status locally. No bank or CIB system is contacted. |
-| **Redis locking (Redlock)** | A JavaScript object keyed by plot with a 5-minute TTL, stored in LocalStorage. There is no Redis server. |
-| **AI/OCR** | Rule-based text parsing of synthetic deed records with heuristic conflict rules. No ML model and no OCR engine are used. |
-| **PostGIS spatial queries** | A bounding-box overlap heuristic in `map.js` against the synthetic polygons. No PostGIS or real GIS server. |
-| **Blockchain / immutable ledger** | A SHA-256 hash chain in LocalStorage, not a real distributed ledger. No Hyperledger/other blockchain is connected. |
-| **Webhook / event bus (M1)** | An in-page pub/sub emitter that also records events to LocalStorage. No real Kafka/webhook receiver. |
-| **Mutation registry** | A `mutationStatus` field on the synthetic plot records, updated locally by the Saga. No real registry. |
+| `php artisan serve --host=127.0.0.1 --port=8000` | Laravel server (all pages) |
+| `npm run dev` | Vite dev server with live reload |
+| `composer dev` | Server + queue listener + log tail + Vite together |
+| `npm run build` | Production asset build into `public/build/` |
+
+### Testing and checks (last verified 2026-10-18)
+
+```bash
+php artisan test        # or: composer test — 242 passed (1048 assertions), ~13 s
+php tools/lang-coverage.php     # 724 referenced keys, 0 missing in EN, 0 missing in BN
+php tools/lang-parity.php       # PARITY OK — 430/430 keys in pages.php
+php tools/lang-audit.php        # used-in-code keys vs the dictionary
+php tools/i18n-coverage.php     # static Blade __()/@lang extraction
+node smoke-test.cjs     # 12/12 pages clean (requires the server on port 8000)
+php artisan route:list  # 35 registered route methods in the current build
+```
+
+- The PHPUnit suite runs against in-memory SQLite (`phpunit.xml`); your local database
+  is never touched.
+- The smoke test hard-codes Chrome at
+  `C:\Program Files (x86)\Google\Chrome\Application\chrome.exe` (edit if needed) and is
+  slow because it loads real OpenStreetMap tiles.
+- No lint/typecheck scripts are configured; Laravel Pint is available via
+  `vendor/bin/pint` (no `pint.json` in the repo).
 
 ---
 
-## 9. Security & Privacy Limitations
+## 10. Security, Limitations, and Integration Status
 
-This is a demo front end with **no security guarantees**:
+### What is synthetic (everywhere)
 
-- **The public demo pages have no authentication or role checks.** The 12 M1–M10 pages
-  are public views, so anyone can act as any simulated role (officer, bank, verifier)
-  with no credentials. The Laravel application itself is not open: it has Breeze
-  authentication and four roles (`admin`, `registry_officer`, `bank_officer`,
-  `citizen`, see §2b) enforced by `auth` + `role:` middleware and server-side policies
-  on all real panels (`/citizen/*`, `/registry/*`, `/bank/*`, `/admin/*`,
-  `/account/pending`, `/profile`). Only the demo pages are public.
-- **All data is client-side and mutable.** Everything lives in LocalStorage — the
-  ledger, deeds, locks, KYC records. Any user can open DevTools and read, edit, or
-  delete any of it. This is intentional for the demo but means nothing here is
-  trustworthy evidence of anything.
-- **No server-side validation.** Because there is no backend, every "check" (KYC pass,
-  lien absence, lock state) is advisory and can be bypassed entirely by manipulating
-  the browser.
-- **No real personal data is used** — all names, NID-like numbers and addresses are
-  synthetic placeholders generated by `seed.js`. The camera capture feature (M4) keeps
-  the photo in the local page only and uploads nothing, but the photo still lives in
-  browser memory/storage on the user's machine — treat it as sensitive in a real
-  deployment.
-- **No encryption at rest.** LocalStorage is plain text.
-- **No HTTPS enforcement.** The app does not force HTTPS and leaves
-  `SESSION_SECURE_COOKIE` unset; terminate TLS and set it in any real deployment.
-  **CSRF protection is enabled** — Laravel's default `web` middleware
-  (`ValidateCsrfToken`) covers every session route, and no exclusions are configured.
-  **Rate limiting is partial** — login is limited to 5 attempts per email + IP
-  (`LoginRequest`), registration to 5 requests/minute per IP (`throttle:5,1`,
-  regression-tested in `RegistrationTest`), and the email-verification routes to
-  6/minute; the password-reset request and `/locale` routes have no route throttle.
-- **Email verification is scaffolded but not enforced.** Breeze's verification routes,
-  views and tests exist, but `User` does not implement `MustVerifyEmail` and no route
-  uses the `verified` middleware, so a new account can use every panel immediately
-  after registration.
-- **The sensitive-read audit chain is dormant.** `AuditChain` and
-  `sensitive_read_audits` are implemented and tested, but no route invokes them, so no
-  audit rows are written in normal use and nothing exposes the chain for verification.
+- The demo layer uses only fabricated plots, deeds, names and `SIM-` prefixed NID-like
+  numbers generated by `seed.js` — no real person or parcel appears.
+- Backend seed data is likewise synthetic (`IdentityNormalizer::isSynthetic` detects
+  `SIM-` numbers), and `PartySeeder` refuses to look like real registrations.
 
-For a production system you would need real server-side auth, database-backed state,
-server-side validation for every rule, real integrations with consent, and a genuine
-tamper-evident storage layer.
+### What is real (application security)
 
----
+- Breeze authentication with login throttling (5 attempts per email + IP) and
+  registration throttling (`throttle:5,1`); CSRF protection enabled with no exclusions.
+- Four roles enforced by middleware (403), object-level policies on every citizen
+  resource, and separation of duties in the policies. Blade `@can` checks only hide
+  buttons — every action is re-authorized server-side.
+- NID values are encrypted at rest and looked up via a keyed HMAC-SHA256 (never a bare
+  hash — the NID space is brute-forceable); only the last 4 digits are shown
+  (`•••• 1234`). The repository contains no keys, tokens or personal data; `.env` is
+  git-ignored and `.env.example` carries empty placeholders.
 
-## 10. Known Limitations & Future Possibilities
+### Integration status — nothing external is connected
+
+| Integration the demo portrays | What actually happens | Status |
+|---|---|---|
+| Government land registry / e-mutation | LocalStorage records; no registry API exists | Not integrated |
+| Porichoy (or any) e-KYC | Format rule + random confidence; no network call | Not integrated |
+| Bank / CIB lien systems, e-NOC | Local list; "e-NOC" flips a status field | Not integrated |
+| Redis / Redlock locking | A JavaScript object with a 5-minute TTL | Not integrated |
+| AI / OCR and ML detection | Hand-written heuristic rules; no model | Not integrated |
+| PostGIS / cadastral GIS | Leaflet + point-in-polygon on synthetic shapes | Not integrated |
+| Blockchain / immutable ledger | SHA-256 chain in LocalStorage | Not integrated |
+| Kafka / webhooks | An in-page event array | Not integrated |
+| Payments / mutation execution | Not simulated at all | Out of scope |
+
+The Laravel application is equally unconnected: every "verification" outcome is a
+rule-based internal check, and the verification-request UI permanently records
+`official_verification_not_available` — the code deliberately refuses to claim
+government verification.
 
 ### Known limitations
 
-- **Single-user, single-browser.** Locks and state are not shared between two people or
-  two tabs (each tab has its own LocalStorage copy in most browsers).
-- **No real concurrency control.** "Lock contention" is simulated per-browser only.
-- **Rule-based conflict detection**, not ML — it can only catch patterns it was
-  explicitly coded to look for.
-- **Overlap detection is bounding-box based**, not true polygon intersection.
-- **Ledger is client-side only** — clearing storage loses the history, and nothing is
-  verifiable by a third party.
-- **Reviewer workflows remain demo-only and incomplete.** Officer review/approval,
-  citizen ownership-link approval, listing publication, and land-record/verification
-  review have policies and status constants but **no route, controller or UI**. In the
-  running app the terminal states are `pending`, `pending_review` and `submitted`;
-  buyer search filters to `published`, which nothing can reach, so it is empty by
-  construction (see §2b). Treat the reviewer side as unbuilt, not production-ready.
-- **Email verification is not enforced** (see §9) — registration immediately grants a
-  usable session.
-- **The PHPUnit suite covers the Laravel backend, not the demo layer** — it is a
-  custom project suite (242 tests passed in the latest run), while the public M1–M10
-  pages are only checked by the Playwright smoke test (see §6).
-- The smoke test's Chrome path is hard-coded (see §6).
-- **Only a fixed 12-plot seed**; adding plots/deeds by hand requires editing LocalStorage
-  or reseeding.
+1. **Reviewer workflows are not implemented.** Officer approval, link approval,
+   record verification, listing publication and verification-request review have no
+   route, controller or UI — the terminal states stay `pending` / `pending_review` /
+   `submitted` / `unverified`. Buyer search filters on `published`, which nothing can
+   reach — **it is empty by construction**.
+2. **Admin/registry/bank dashboards are placeholders** that say so; there is no user
+   management, review queue, audit viewer or party-management UI.
+3. **The Laravel audit chain is dormant.** `AuditChain` + `sensitive_read_audits` are
+   implemented and tested, but no route calls `IdentityAccessService`, so no audit rows
+   are written in normal use and nothing exposes the chain for verification.
+4. **Email verification is not enforced** — `User` does not implement
+   `MustVerifyEmail` and no route uses `verified`.
+5. **The Saga page's status comparison is stale** (`COMPLETED` vs the engine's
+   `COMMITTED`), so a successful run shows a red badge and the "aborted" toast wording.
+   Cosmetic; the log and compensations are correct.
+6. **The `revertMutation` compensation is unreachable** — step 5 completing always
+   commits, so the pending-mutation flag is never reverted by a real abort.
+7. **M6's survey-conflict rule is unreachable** (nothing sets the `OCR_BS` flag), and
+   **M9's +10 no-survey rule** checks `survey === 'NONE'`, which the seeded data never
+   produces. **M1's pub/sub API** (`subscribe`/`emit`/`TOPICS`) is unused by pages.
+8. **The demo layer is single-browser.** Locks, KYC and the ledger never leave the
+   browser profile; two tabs are two isolated worlds, and "concurrency" is simulated.
+9. **Overlap detection is vertex-in-polygon**, not true polygon intersection; the
+   seeded geometry never overlaps, so the report is legitimately 0 until data is
+   edited.
+10. **KYC is probabilistic** (~70% pass rate) by design, which can surprise presenters;
+    retry on rejection.
+11. **Citizen dashboard shows zeroed counts** while `/citizen/modes` shows real ones;
+    legacy pages (`/citizen/deeds`, `/citizen/ownership`, `/citizen/applications`)
+    render honest empty states. No notifications table exists.
+12. **Fixed seed only** (12 plots / 15 deeds); changing it means editing `seed.js`
+    (demo) or the seeders (backend).
+13. **No CI pipeline, no Docker, no lint/typecheck scripts**; the smoke test is manual
+    and its browser path is hard-coded.
+14. **Observability is minimal** — Laravel logs plus a queue listener; no metrics or
+    alerting.
 
-### Future integration possibilities (real implementations the simulation points to)
+### Before any real-world deployment
 
-| Module | A real integration would look like |
-|---|---|
-| M1 Sync/Webhook | A real message bus (e.g. Kafka) or webhook receiver on a server, with retries and dead-letter handling. |
-| M2 Crypto Verification | Server-side document hashing, PKI-based digital signatures, and a real government registry API for ground truth. |
-| M3 Plot Lock | A real Redis (or similar) distributed lock with TTL and Quorum/Redlock semantics across nodes. |
-| M4 e-KYC | A real Porichoy (or equivalent) API integration with consent, plus a biometric vendor with proper template security. |
-| M5 Bank Lien Registry | A real CIB/bank integration with proper authorization, and a real e-NOC workflow. |
-| M6 AI/OCR | A real OCR engine or ML model on actual document images, with human review of flagged cases. |
-| M7 Faraz Calculator | Server-side share computation with legal/inherited-share data from a real records source. |
-| M8 GIS Layer | A real PostGIS database with real cadastral polygons and true `ST_Intersects`/`ST_Overlaps` queries. |
-| M9 Risk Scoring | Server-side scoring with real historical data and a transparent, auditable model. |
-| M10 Audit Ledger | A real distributed ledger (e.g. Hyperledger Fabric) or a server-side append-only log with external anchoring. |
+1. HTTPS with HSTS, `SESSION_SECURE_COOKIE=true`, `APP_DEBUG=false`,
+   `APP_ENV=production`, real `APP_URL`, and rotated `APP_KEY` + `NID_HMAC_KEY`.
+2. Replace SQLite with a server database; back it up; restrict DB credentials.
+3. Wire `IdentityAccessService` behind reviewed routes with purpose prompts and working
+   audit writes; add an audit viewer with strict access.
+4. Enforce email verification and review the password-reset/locale throttles.
+5. Implement the reviewer workflows with explicit queues, audit trails and four-eyes
+   controls — never let a submitter approve their own item.
+6. Anchor the audit chain externally (or use an append-only store) so whole-table
+   replacement is detectable.
+7. Add monitoring, structured logging and an incident process for identity reads.
 
 ---
 
-## File Changed in This Update
+## 11. Future Roadmap
 
-- **`README.md`** — replaced with the content above. No other files were
-  created or modified.
+### Fixes to existing features (small, high-value)
+
+- Repair the Saga status comparison so the badge and toast match `COMMITTED`.
+- Make M6's survey-conflict rule reachable (set the `OCR_BS` flag in the extraction
+  path) or remove it; align M9's no-survey rule with real survey values.
+- Either wire the M1 page to `webhook.js`'s `subscribe`/`emit` API or delete the unused
+  wrapper; remove the unreachable `revertMutation` branch or make it real.
+- Populate the citizen dashboard from the same queries as `/citizen/modes`.
+- Make the smoke test's browser path configurable and add a headless CI mode.
+
+### Complete the backend workflows (highest priority)
+
+- **Reviewer workflows:** review queues and endpoints for registry officers and admins
+  — link approval, record verification/rejection, listing publication, verification-
+  check recording — with four-eyes enforcement and audit trails. This unblocks the
+  largest share of the existing citizen workflows.
+- Party-management UI for admin/registry roles; identity views behind
+  `IdentityAccessService` with purpose capture and working `SensitiveReadAudit` writes,
+  plus an audit viewer.
+- Notifications table (or explicitly remove the placeholder).
+
+### Real integrations (each behind consent and audit design)
+
+- Porichoy / e-KYC provider, CIB/bank lien exchange with real e-NOC, a cadastral GIS
+  source with PostGIS, and a registry/mutation data feed. The demo modules' contracts
+  (input → processing → output) show where each would plug in.
+
+### Security, testing and deployment
+
+- External anchoring for the audit chain so whole-table replacement is detectable.
+- CI running `php artisan test`, the language tools and `npm run build` on every
+  change; scheduled smoke tests; end-to-end browser tests for citizen workflows.
+- Deployment hardening per [§10](#10-security-limitations-and-integration-status);
+  container/standard deployment artifacts; monitoring and alerting.
+
+---
+
+*Documentation last verified against the source code in this repository on 2026-10-18
+(test suite run, smoke test, language tools, production build, route list). Commands in
+§9 are copy-pasteable; results quoted are from actual runs on the development machine,
+not estimates.*
